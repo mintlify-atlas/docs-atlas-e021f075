@@ -1,0 +1,105 @@
+{
+  "projectType": "saas",
+  "projectName": "Gestión de Tierras",
+  "projectDescription": "Sistema web integral para la gestión de tierras, colonias, y relevamientos con control de usuarios y permisos basados en roles.",
+  "theme": "linden",
+  "primaryColor": "#2E7D32",
+  "lightColor": "#66BB6A",
+  "darkColor": "#1B5E20",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/user-management",
+              "features/role-permissions",
+              "features/geographic-data",
+              "features/land-surveys",
+              "features/notifications"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/administrator",
+              "guides/manager",
+              "guides/workflows"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/database",
+              "configuration/settings",
+              "configuration/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Models",
+            "pages": [
+              "api/models/user",
+              "api/models/rol",
+              "api/models/departamento",
+              "api/models/distrito",
+              "api/models/colonia",
+              "api/models/solicitud",
+              "api/models/relevamiento"
+            ]
+          },
+          {
+            "group": "Views",
+            "pages": [
+              "api/views/authentication",
+              "api/views/administration",
+              "api/views/management",
+              "api/views/geographic-data"
+            ]
+          },
+          {
+            "group": "Forms",
+            "pages": [
+              "api/forms/user-forms",
+              "api/forms/data-forms"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based user authentication and authorization",
+    "Geographic data management (Departments, Districts, Colonies)",
+    "Land survey request workflow with state transitions",
+    "Multi-role dashboards (Administrator, Manager)",
+    "Real-time notification system",
+    "Audit trail for tracking changes",
+    "Custom user management with approval workflow"
+  ],
+  "publicApiSurface": [
+    "User model with custom authentication",
+    "Rol model for permission management",
+    "Departamento, Distrito, Colonia models for geographic hierarchy",
+    "Solicitud model for survey requests with state machine",
+    "Relevamiento model for land surveys",
+    "LoginView, SignUpView, AdminView, GerenciaView",
+    "CRUD views for all geographic entities",
+    "Role assignment and user approval endpoints",
+    "Notification system utilities"
+  ]
+}
