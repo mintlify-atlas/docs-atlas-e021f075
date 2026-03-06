@@ -1,0 +1,314 @@
+---
+title: SolicitudAudit Model
+description: Audit trail model for tracking state changes in survey requests
+icon: clock-rotate-left
+---
+
+## Overview
+
+The `SolicitudAudit` model provides a complete audit trail for `Solicitud` (survey request) state changes. Every time a survey request transitions between states, an audit record is created capturing the previous state, new state, who made the change, when it occurred, and optional comments.
+
+## Model Definition
+
+```python core/models.py
+class SolicitudAudit(models.Model):
+    solicitud = models.ForeignKey(
+        Solicitud, on_delete=models.CASCADE, related_name="auditorias")
+    previo = models.CharField(max_length=50)
+    nuevo = models.CharField(max_length=50)
+    cambiado_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True)
+    fecha = models.DateTimeField(default=timezone.now)
+    comentario = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Audit - Solicitud"
+        verbose_name_plural = "Auditorías - Solicitudes"
+        ordering = ["-fecha"]
+```
+
+## Fields
+
+<ParamField path="solicitud" type="ForeignKey" required>
+  The survey request being audited
+  
+  - **model**: [Solicitud](/api/models/solicitud)
+  - **on_delete**: CASCADE (deleting a request deletes its audit trail)
+  - **related_name**: `auditorias`
+</ParamField>
+
+<ParamField path="previo" type="CharField" required>
+  Previous state before the change
+  
+  - **max_length**: 50 characters
+  - **Values**: `"pendiente"`, `"activo"`, `"en_proceso"`, `"inactivo"`
+</ParamField>
+
+<ParamField path="nuevo" type="CharField" required>
+  New state after the change
+  
+  - **max_length**: 50 characters
+  - **Values**: `"pendiente"`, `"activo"`, `"en_proceso"`, `"inactivo"`
+</ParamField>
+
+<ParamField path="cambiado_por" type="ForeignKey">
+  User who made the state change
+  
+  - **model**: [User](/api/models/user)
+  - **on_delete**: SET_NULL (preserve audit trail even if user is deleted)
+  - **null**: True (can be null if user is deleted)
+  - **blank**: True
+</ParamField>
+
+<ParamField path="fecha" type="DateTimeField" required>
+  Timestamp when the change occurred
+  
+  - **default**: `timezone.now` (automatically set to current time)
+  - Used for chronological ordering
+</ParamField>
+
+<ParamField path="comentario" type="TextField">
+  Optional comment explaining the reason for the state change
+  
+  - **blank**: Optional field
+  - **Example**: "Colonia no cumple requisitos", "Relevamiento completado satisfactoriamente"
+</ParamField>
+
+## Meta Options
+
+- **verbose_name**: "Audit - Solicitud"
+- **verbose_name_plural**: "Auditorías - Solicitudes"
+- **ordering**: `["-fecha"]` - Most recent changes first
+
+## Relationships
+
+### Foreign Keys
+
+<ParamField path="solicitud" type="ForeignKey">
+  Parent survey request
+  
+  - **Related model**: [Solicitud](/api/models/solicitud)
+  - **Access**: `audit.solicitud`
+  - **Reverse access**: `solicitud.auditorias.all()`
+</ParamField>
+
+<ParamField path="cambiado_por" type="ForeignKey">
+  User who performed the change
+  
+  - **Related model**: [User](/api/models/user)
+  - **Access**: `audit.cambiado_por`
+</ParamField>
+
+## Usage Examples
+
+### Creating Audit Records
+
+Audit records are typically created automatically when a Solicitud changes state:
+
+```python
+from core.models import Solicitud, SolicitudAudit
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+# Get a solicitud and user
+solicitud = Solicitud.objects.get(pk=1)
+user = User.objects.get(username="admin")
+
+# Save the previous state
+estado_anterior = solicitud.estado
+
+# Change the state
+solicitud.estado = Solicitud.ESTADO_ACTIVO
+solicitud.save()
+
+# Create audit record
+SolicitudAudit.objects.create(
+    solicitud=solicitud,
+    previo=estado_anterior,
+    nuevo=solicitud.estado,
+    cambiado_por=user,
+    comentario="Solicitud aprobada por gerencia"
+)
+```
+
+### Querying Audit Trail
+
+```python
+# Get all audit records for a solicitud
+solicitud = Solicitud.objects.get(pk=1)
+auditorias = solicitud.auditorias.all()
+
+for audit in auditorias:
+    print(f"{audit.fecha}: {audit.previo} → {audit.nuevo}")
+    if audit.cambiado_por:
+        print(f"  Changed by: {audit.cambiado_por.username}")
+    if audit.comentario:
+        print(f"  Comment: {audit.comentario}")
+```
+
+### Filtering Audit Records
+
+```python
+# Get all changes to 'activo' state
+activaciones = SolicitudAudit.objects.filter(nuevo="activo")
+
+# Get changes made by a specific user
+user_changes = SolicitudAudit.objects.filter(
+    cambiado_por__username="manager1"
+)
+
+# Get recent changes (last 7 days)
+from django.utils import timezone
+from datetime import timedelta
+
+recent = SolicitudAudit.objects.filter(
+    fecha__gte=timezone.now() - timedelta(days=7)
+)
+```
+
+### Complete State Change History
+
+```python
+# View complete timeline for a solicitud
+solicitud = Solicitud.objects.prefetch_related(
+    'auditorias__cambiado_por'
+).get(pk=1)
+
+print(f"Solicitud #{solicitud.pk} - {solicitud.colonia}")
+print(f"Current state: {solicitud.estado}")
+print("\nHistory:")
+
+for audit in solicitud.auditorias.all():
+    user = audit.cambiado_por.username if audit.cambiado_por else "System"
+    print(f"  {audit.fecha.strftime('%Y-%m-%d %H:%M')} - {user}")
+    print(f"    {audit.previo} → {audit.nuevo}")
+    if audit.comentario:
+        print(f"    Note: {audit.comentario}")
+```
+
+## Integration with Solicitud
+
+### Creating Audit Trail in Views
+
+```python
+def cambiar_estado_solicitud(request, solicitud_id):
+    solicitud = get_object_or_404(Solicitud, pk=solicitud_id)
+    nuevo_estado = request.POST.get('estado')
+    
+    # Validate transition
+    if not solicitud.puede_transicionar(nuevo_estado):
+        messages.error(request, "Transición de estado no válida")
+        return redirect('solicitudes_list')
+    
+    # Save old state
+    estado_anterior = solicitud.estado
+    
+    # Update solicitud
+    solicitud.estado = nuevo_estado
+    solicitud.save()
+    
+    # Create audit record
+    SolicitudAudit.objects.create(
+        solicitud=solicitud,
+        previo=estado_anterior,
+        nuevo=nuevo_estado,
+        cambiado_por=request.user,
+        comentario=request.POST.get('comentario', '')
+    )
+    
+    messages.success(request, f"Estado actualizado a {nuevo_estado}")
+    return redirect('solicitudes_detail', pk=solicitud_id)
+```
+
+### Using Signals for Automatic Auditing
+
+You can use Django signals to automatically create audit records:
+
+```python
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
+
+@receiver(pre_save, sender=Solicitud)
+def audit_solicitud_changes(sender, instance, **kwargs):
+    if instance.pk:  # Only for updates
+        try:
+            old_instance = Solicitud.objects.get(pk=instance.pk)
+            if old_instance.estado != instance.estado:
+                # State changed - create audit record
+                SolicitudAudit.objects.create(
+                    solicitud=instance,
+                    previo=old_instance.estado,
+                    nuevo=instance.estado,
+                    # Note: User context needs to be passed separately
+                    comentario="Estado actualizado"
+                )
+        except Solicitud.DoesNotExist:
+            pass
+```
+
+## Reporting and Analytics
+
+### State Transition Analysis
+
+```python
+from django.db.models import Count
+
+# Count transitions by type
+transitions = SolicitudAudit.objects.values(
+    'previo', 'nuevo'
+).annotate(
+    count=Count('id')
+).order_by('-count')
+
+# Average time in each state
+from django.db.models import Avg, F, ExpressionWrapper
+from django.db.models.fields import DurationField
+
+# This would require more complex queries with window functions
+```
+
+## Best Practices
+
+<Accordion title="Always provide context in comentario">
+When creating audit records, include meaningful comments that explain why the state change occurred. This helps with future audits and troubleshooting.
+</Accordion>
+
+<Accordion title="Never delete audit records">
+Audit records are CASCADE deleted with their parent Solicitud, but should never be manually deleted. They provide critical compliance and troubleshooting information.
+</Accordion>
+
+<Accordion title="Use transactions for state changes">
+Wrap state changes and audit record creation in a database transaction to ensure data consistency:
+
+```python
+from django.db import transaction
+
+with transaction.atomic():
+    estado_anterior = solicitud.estado
+    solicitud.estado = nuevo_estado
+    solicitud.save()
+    
+    SolicitudAudit.objects.create(
+        solicitud=solicitud,
+        previo=estado_anterior,
+        nuevo=nuevo_estado,
+        cambiado_por=user,
+        comentario=comentario
+    )
+```
+</Accordion>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Solicitud Model" icon="clipboard-list" href="/api/models/solicitud">
+    Survey request with state machine
+  </Card>
+  <Card title="Land Surveys Feature" icon="map-location-dot" href="/features/land-surveys">
+    Complete survey workflow
+  </Card>
+  <Card title="User Model" icon="user" href="/api/models/user">
+    User who made changes
+  </Card>
+</CardGroup>

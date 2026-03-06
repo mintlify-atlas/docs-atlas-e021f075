@@ -1,0 +1,229 @@
+---
+title: Objetivo Model
+description: Task objective model within organizational areas in the Gestión de Tierras system
+icon: bullseye
+---
+
+## Overview
+
+The `Objetivo` model represents specific objectives or goals within an organizational area. Each objective belongs to a single area and has its own auto-generated code scoped to that area.
+
+## Model Definition
+
+```python core/models.py
+class Objetivo(models.Model):
+    area = models.ForeignKey(
+        Area, on_delete=models.CASCADE, related_name="objetivos")
+    nombre = models.CharField(max_length=250)
+    descripcion = models.TextField(blank=True)
+    codigo = models.PositiveIntegerField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ("area", "codigo")
+        verbose_name = "Objetivo"
+        verbose_name_plural = "Objetivos"
+        ordering = ["area__nombre", "nombre"]
+
+    def __str__(self):
+        return f"{self.codigo or '-'} - {self.nombre} ({self.area})"
+
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            codigos_existentes = list(
+                Objetivo.objects.filter(area=self.area)
+                .exclude(codigo__isnull=True)
+                .values_list("codigo", flat=True)
+            )
+            nuevo_codigo = 1
+            while nuevo_codigo in codigos_existentes:
+                nuevo_codigo += 1
+            self.codigo = nuevo_codigo
+        super().save(*args, **kwargs)
+```
+
+## Fields
+
+<ParamField path="area" type="ForeignKey" required>
+  The organizational area this objective belongs to
+  
+  - **model**: [Area](/api/models/area)
+  - **on_delete**: CASCADE (deleting an area deletes all its objectives)
+  - **related_name**: `objetivos`
+</ParamField>
+
+<ParamField path="nombre" type="CharField" required>
+  Name or title of the objective
+  
+  - **max_length**: 250 characters
+  - **Example**: "Relevamiento inicial de colonias", "Validación de datos catastrales"
+</ParamField>
+
+<ParamField path="descripcion" type="TextField">
+  Detailed description of the objective
+  
+  - **blank**: Optional field
+  - Used to provide context about the objective's goals and scope
+</ParamField>
+
+<ParamField path="codigo" type="PositiveIntegerField">
+  Unique numeric code within the area
+  
+  - **blank**: Auto-generated if not provided
+  - **null**: Can be null initially
+  - **Scoped uniqueness**: Unique within the parent area only
+  - **Auto-generated**: Starts from 1 for each area
+</ParamField>
+
+## Meta Options
+
+- **unique_together**: `("area", "codigo")` - Code must be unique within each area
+- **verbose_name**: "Objetivo"
+- **verbose_name_plural**: "Objetivos"
+- **ordering**: By area name, then objective name
+
+## Methods
+
+### `__str__()`
+
+Returns a string representation with code, name, and parent area.
+
+**Returns**: `"{codigo or '-'} - {nombre} ({area})"`
+
+**Example**: `"1 - Relevamiento inicial (1 - Relevamiento de Campo)"`
+
+### `save()`
+
+Overrides the default save method to auto-generate the `codigo` field scoped to the parent area.
+
+**Algorithm**:
+1. Check if `codigo` is already set
+2. If not, query existing codes within the same area
+3. Find the first available number starting from 1 (within that area)
+4. Assign the code and save
+
+This allows multiple objectives across different areas to have the same code number.
+
+## Relationships
+
+### Foreign Keys
+
+<ParamField path="area" type="ForeignKey">
+  Parent organizational area
+  
+  - **Related model**: [Area](/api/models/area)
+  - **Access**: `objetivo.area`
+  - **Reverse access**: `area.objetivos.all()`
+</ParamField>
+
+## Constraints
+
+### Unique Together
+
+The combination of `area` and `codigo` must be unique:
+
+```python
+# These are VALID (same code, different areas)
+Objetivo.objects.create(
+    area=area1,
+    codigo=1,
+    nombre="Objetivo A"
+)
+Objetivo.objects.create(
+    area=area2,
+    codigo=1,
+    nombre="Objetivo B"
+)
+
+# This would FAIL (duplicate code in same area)
+Objetivo.objects.create(
+    area=area1,
+    codigo=1,  # Duplicate!
+    nombre="Objetivo C"
+)
+```
+
+## Usage Examples
+
+### Creating Objectives
+
+```python
+from core.models import Area, Objetivo
+
+# Get or create an area
+area = Area.objects.get(nombre="Relevamiento de Campo")
+
+# Create objectives (codes will be auto-generated)
+obj1 = Objetivo.objects.create(
+    area=area,
+    nombre="Relevamiento inicial",
+    descripcion="Primera etapa del proceso de relevamiento"
+)
+print(obj1.codigo)  # 1
+
+obj2 = Objetivo.objects.create(
+    area=area,
+    nombre="Validación de datos"
+)
+print(obj2.codigo)  # 2
+```
+
+### Querying Objectives
+
+```python
+# Get all objectives for an area
+area = Area.objects.get(codigo=1)
+objetivos = area.objetivos.all()
+
+# Get a specific objective
+objetivo = Objetivo.objects.get(area=area, codigo=1)
+
+# Query across areas
+all_objetivos = Objetivo.objects.select_related('area').all()
+for obj in all_objetivos:
+    print(f"{obj.area.nombre}: {obj.nombre}")
+```
+
+### Filtering and Searching
+
+```python
+# Find objectives by name
+objetivos = Objetivo.objects.filter(nombre__icontains="relevamiento")
+
+# Get objectives for a specific area with description
+objetivos = Objetivo.objects.filter(
+    area__nombre="Análisis",
+    descripcion__isnull=False
+)
+```
+
+## Validation
+
+### Scoped Uniqueness
+
+```python
+from django.core.exceptions import ValidationError
+
+area1 = Area.objects.get(codigo=1)
+area2 = Area.objects.get(codigo=2)
+
+# This is VALID - same code, different areas
+Objetivo.objects.create(area=area1, codigo=5, nombre="Obj A")
+Objetivo.objects.create(area=area2, codigo=5, nombre="Obj B")
+
+# This will raise IntegrityError
+try:
+    Objetivo.objects.create(area=area1, codigo=5, nombre="Obj C")
+except IntegrityError:
+    print("Codigo already exists for this area")
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Area Model" icon="sitemap" href="/api/models/area">
+    Parent organizational areas
+  </Card>
+  <Card title="Geographic Data" icon="map" href="/features/geographic-data">
+    Core geographic hierarchy
+  </Card>
+</CardGroup>

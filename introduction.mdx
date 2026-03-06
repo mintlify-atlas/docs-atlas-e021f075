@@ -37,11 +37,11 @@ The Gestión de Tierras system encompasses several specialized modules:
     - Data validation and audit trails
   </Card>
   
-  <Card title="Document Processing" icon="file-text">
-    - File management (expedienteo)
-    - Document coordination
-    - Analysis workflows
-    - Titling process management
+  <Card title="Notifications & Workflow" icon="bell">
+    - Real-time notifications for admin actions
+    - Geographic data validation
+    - Automatic code generation
+    - Audit trail for state changes
   </Card>
 </CardGroup>
 
@@ -49,15 +49,14 @@ The Gestión de Tierras system encompasses several specialized modules:
 
 The application follows Django's MVT (Model-View-Template) architecture with modular apps:
 
-- **core**: Central models (Departamento, Distrito, Colonia, Solicitud, Relevamiento)
+- **core**: Central models (Departamento, Distrito, Colonia, Area, Objetivo, Solicitud, Relevamiento) and geographic data management
 - **administrador**: User management and authentication with custom User model
-- **coordinacion**: Coordination of land survey requests
-- **relevamiento**: Field survey data collection and management
-- **analisis**: Data analysis and reporting
-- **expedienteo**: Document and file management
-- **gerencia**: Management and oversight tools
-- **sig**: Geographic Information System integration
-- **titulacion**: Land titling processes
+- **gerencia**: Management dashboard and geographic data oversight tools
+- **core.notificaciones**: Real-time notification system for administrative actions
+
+<Note>
+Additional modules (coordinacion, relevamiento, analisis, expedienteo, sig, titulacion) are planned for future development to extend land survey coordination, data analysis, document management, GIS integration, and titling workflows.
+</Note>
 
 <Note>
 The system uses a custom user model (`administrador.User`) that extends Django's AbstractUser with role-based permissions and approval workflows.
@@ -68,10 +67,8 @@ The system uses a custom user model (`administrador.User`) that extends Django's
 Gestión de Tierras is designed for:
 
 - **System Administrators**: Full access to configure departments, districts, colonies, and user roles
-- **Land Managers**: Oversee survey requests, coordinate field operations, and track progress
-- **Surveyors**: Conduct field surveys and enter data
-- **Analysts**: Review survey data and generate reports
-- **Document Processors**: Manage files and documentation workflows
+- **Land Managers (Gerentes)**: Oversee geographic data, manage survey requests, and coordinate operations
+- **General Users**: Access specific features based on assigned roles and permissions
 
 ## Database Design
 
@@ -89,9 +86,14 @@ Key models include:
 - **Departamento**: Top-level administrative divisions
 - **Distrito**: Districts within departments
 - **Colonia**: Land colonies/settlements with status tracking
+- **Area**: Organizational areas for task categorization
+- **Objetivo**: Objectives within areas
 - **Solicitud**: Survey requests with state management
-- **Relevamiento**: Actual survey data collection
+- **SolicitudAudit**: Audit trail for request state changes
+- **Relevamiento**: Actual survey data collection with flexible JSON data
 - **User**: Custom user model with roles and permissions
+- **Rol**: Role definitions with permission management
+- **Notificacion**: User notifications for system events
 
 ## Technology Stack
 

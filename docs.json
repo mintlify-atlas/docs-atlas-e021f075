@@ -70,7 +70,10 @@
               "api/models/departamento",
               "api/models/distrito",
               "api/models/colonia",
+              "api/models/area",
+              "api/models/objetivo",
               "api/models/solicitud",
+              "api/models/solicitud-audit",
               "api/models/relevamiento"
             ]
           },

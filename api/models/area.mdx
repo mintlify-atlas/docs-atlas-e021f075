@@ -1,0 +1,173 @@
+---
+title: Area Model
+description: Organizational area model for categorizing objectives and tasks in the Gestión de Tierras system
+icon: sitemap
+---
+
+## Overview
+
+The `Area` model represents organizational areas or departments used to categorize objectives within the land management system. Each area can have multiple objectives associated with it.
+
+## Model Definition
+
+```python core/models.py
+class Area(models.Model):
+    nombre = models.CharField(max_length=200, unique=True)
+    descripcion = models.TextField(blank=True)
+    codigo = models.PositiveIntegerField(blank=True, null=True, unique=True)
+
+    class Meta:
+        verbose_name = "Área"
+        verbose_name_plural = "Áreas"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return f"{self.codigo or '-'} - {self.nombre}"
+
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            codigos_existentes = list(
+                Area.objects.exclude(codigo__isnull=True).values_list(
+                    "codigo", flat=True)
+            )
+            nuevo_codigo = 1
+            while nuevo_codigo in codigos_existentes:
+                nuevo_codigo += 1
+            self.codigo = nuevo_codigo
+        super().save(*args, **kwargs)
+```
+
+## Fields
+
+<ParamField path="nombre" type="CharField" required>
+  Name of the organizational area
+  
+  - **max_length**: 200 characters
+  - **unique**: Must be unique across all areas
+  - **Example**: "Relevamiento", "Análisis", "Titulación"
+</ParamField>
+
+<ParamField path="descripcion" type="TextField">
+  Detailed description of the area's purpose and responsibilities
+  
+  - **blank**: Optional field
+  - Used to provide context about the area's function
+</ParamField>
+
+<ParamField path="codigo" type="PositiveIntegerField">
+  Unique numeric code for the area
+  
+  - **blank**: Auto-generated if not provided
+  - **null**: Can be null initially
+  - **unique**: Must be unique across all areas
+  - **Auto-generated**: Uses gap-filling algorithm to find the first available number
+</ParamField>
+
+## Meta Options
+
+- **verbose_name**: "Área"
+- **verbose_name_plural**: "Áreas"
+- **ordering**: Ordered by `nombre` (alphabetically)
+
+## Methods
+
+### `__str__()`
+
+Returns a string representation combining the code and name.
+
+**Returns**: `"{codigo or '-'} - {nombre}"`
+
+**Example**: `"1 - Relevamiento"` or `"- Análisis"` (if no code assigned)
+
+### `save()`
+
+Overrides the default save method to auto-generate the `codigo` field if not provided.
+
+**Algorithm**:
+1. Check if `codigo` is already set
+2. If not, query all existing codes
+3. Find the first available number starting from 1
+4. Assign the code and save
+
+This ensures no gaps in the numbering sequence and handles concurrent saves safely.
+
+## Relationships
+
+### Reverse Relationships
+
+<ParamField path="objetivos" type="Reverse ForeignKey">
+  All objectives associated with this area
+  
+  - **Related model**: [Objetivo](/api/models/objetivo)
+  - **Related name**: `objetivos`
+  - **Access**: `area.objetivos.all()`
+</ParamField>
+
+## Usage Examples
+
+### Creating an Area
+
+```python
+from core.models import Area
+
+# Create an area (code will be auto-generated)
+area = Area.objects.create(
+    nombre="Relevamiento de Campo",
+    descripcion="Área responsable de las actividades de relevamiento en terreno"
+)
+print(area.codigo)  # 1 (or next available number)
+print(area)  # "1 - Relevamiento de Campo"
+```
+
+### Querying Areas
+
+```python
+# Get all areas ordered by name
+areas = Area.objects.all()
+
+# Find a specific area by name
+area = Area.objects.get(nombre="Relevamiento de Campo")
+
+# Get area with all its objectives
+area = Area.objects.prefetch_related('objetivos').get(codigo=1)
+for objetivo in area.objetivos.all():
+    print(f"  - {objetivo.nombre}")
+```
+
+### Updating an Area
+
+```python
+area = Area.objects.get(codigo=1)
+area.descripcion = "Updated description"
+area.save()  # Code remains unchanged
+```
+
+## Validation
+
+### Uniqueness Constraints
+
+- `nombre` must be unique
+- `codigo` must be unique (when not null)
+
+### Example Validation
+
+```python
+from django.core.exceptions import ValidationError
+
+# This will raise IntegrityError
+try:
+    Area.objects.create(nombre="Relevamiento")  # Duplicate name
+except IntegrityError:
+    print("Area with this name already exists")
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Objetivo Model" icon="bullseye" href="/api/models/objetivo">
+    Objectives within areas
+  </Card>
+  <Card title="Geographic Data" icon="map" href="/features/geographic-data">
+    Core geographic hierarchy
+  </Card>
+</CardGroup>
