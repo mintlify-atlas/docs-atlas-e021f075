@@ -1,0 +1,320 @@
+---
+title: Database Configuration
+description: PostgreSQL database setup and configuration for Gestión de Tierras
+---
+
+## Overview
+
+Gestión de Tierras uses PostgreSQL as its database backend. This page covers database configuration, setup, and best practices.
+
+## Database Settings
+
+The database configuration is defined in `gestion_de_tierras/settings.py:93-102`:
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'gestion_de_tierras_bd',
+        'USER': 'postgres',
+        'PASSWORD': '1603',
+        'HOST': 'localhost',
+        'PORT': '5432',
+    }
+}
+```
+
+### Configuration Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `ENGINE` | `django.db.backends.postgresql` | PostgreSQL database backend |
+| `NAME` | `gestion_de_tierras_bd` | Database name |
+| `USER` | `postgres` | Database user |
+| `PASSWORD` | `1603` | Database password |
+| `HOST` | `localhost` | Database host |
+| `PORT` | `5432` | PostgreSQL default port |
+
+<Warning>
+The example configuration above contains hardcoded credentials suitable only for development. **Never use these values in production.** See the security section below.
+</Warning>
+
+## PostgreSQL Setup
+
+### 1. Install PostgreSQL
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# macOS with Homebrew
+brew install postgresql
+
+# Start PostgreSQL service
+sudo systemctl start postgresql  # Linux
+brew services start postgresql   # macOS
+```
+
+### 2. Create Database and User
+
+```bash
+# Access PostgreSQL prompt
+sudo -u postgres psql
+```
+
+```sql
+-- Create database
+CREATE DATABASE gestion_de_tierras_bd;
+
+-- Create user (use a strong password in production)
+CREATE USER gestion_user WITH PASSWORD 'your_secure_password';
+
+-- Grant privileges
+GRANT ALL PRIVILEGES ON DATABASE gestion_de_tierras_bd TO gestion_user;
+
+-- Exit
+\q
+```
+
+### 3. Configure Connection Settings
+
+Update your `settings.py` with the correct credentials:
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'gestion_de_tierras_bd',
+        'USER': 'gestion_user',
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'your_secure_password'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+    }
+}
+```
+
+## Running Migrations
+
+After configuring the database, run migrations to create all necessary tables:
+
+```bash
+# Run all migrations
+python manage.py migrate
+
+# Create a superuser
+python manage.py createsuperuser
+```
+
+The `manage.py` utility (located at project root) handles all database operations:
+
+```python
+# manage.py uses the settings module
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gestion_de_tierras.settings')
+```
+
+### Check Migration Status
+
+```bash
+# Show applied migrations
+python manage.py showmigrations
+
+# Check for unapplied migrations
+python manage.py migrate --plan
+```
+
+## Production Configuration
+
+### Environment Variables
+
+Use environment variables for sensitive database credentials:
+
+```python
+import os
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'gestion_de_tierras_bd'),
+        'USER': os.environ.get('DB_USER'),
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Connection pooling
+    }
+}
+```
+
+### Connection Pooling
+
+For production, enable connection pooling to improve performance:
+
+```python
+DATABASES = {
+    'default': {
+        # ... other settings ...
+        'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+    }
+}
+```
+
+### Advanced Pooling with pgBouncer
+
+For high-traffic applications, consider using pgBouncer:
+
+```ini
+# pgbouncer.ini
+[databases]
+gestion_de_tierras_bd = host=localhost port=5432 dbname=gestion_de_tierras_bd
+
+[pgbouncer]
+listen_port = 6432
+listen_addr = 127.0.0.1
+auth_type = md5
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = transaction
+max_client_conn = 100
+default_pool_size = 20
+```
+
+Then configure Django to connect through pgBouncer:
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'gestion_de_tierras_bd',
+        'USER': 'gestion_user',
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': 'localhost',
+        'PORT': '6432',  # pgBouncer port
+    }
+}
+```
+
+## Database Backup
+
+### Automated Backup Script
+
+```bash
+#!/bin/bash
+# backup_db.sh
+
+BACKUP_DIR="/var/backups/postgresql"
+DATE=$(date +"%Y%m%d_%H%M%S")
+DB_NAME="gestion_de_tierras_bd"
+
+mkdir -p $BACKUP_DIR
+
+# Create backup
+pg_dump -U gestion_user -h localhost $DB_NAME | gzip > "$BACKUP_DIR/${DB_NAME}_${DATE}.sql.gz"
+
+# Keep only last 30 days of backups
+find $BACKUP_DIR -name "${DB_NAME}_*.sql.gz" -mtime +30 -delete
+
+echo "Backup completed: ${DB_NAME}_${DATE}.sql.gz"
+```
+
+### Schedule with Cron
+
+```bash
+# Daily backup at 2 AM
+0 2 * * * /path/to/backup_db.sh >> /var/log/db_backup.log 2>&1
+```
+
+### Restore from Backup
+
+```bash
+# Decompress and restore
+gunzip -c backup_file.sql.gz | psql -U gestion_user -d gestion_de_tierras_bd
+```
+
+## Security Best Practices
+
+<Warning>
+**Critical Security Measures:**
+
+1. **Never commit database passwords** to version control
+2. **Use environment variables** for all credentials
+3. **Create dedicated database users** with minimal privileges
+4. **Use strong passwords** (minimum 16 characters, mixed case, numbers, symbols)
+5. **Restrict database access** to application servers only
+6. **Enable SSL/TLS** for database connections
+7. **Regular backups** with encrypted storage
+</Warning>
+
+### SSL Connection
+
+For production, always use SSL for database connections:
+
+```python
+DATABASES = {
+    'default': {
+        # ... other settings ...
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
+    }
+}
+```
+
+### PostgreSQL Access Control
+
+Edit `pg_hba.conf` to restrict access:
+
+```conf
+# Allow connections only from application server
+host    gestion_de_tierras_bd    gestion_user    10.0.1.100/32    md5
+
+# Reject all other connections
+host    all    all    0.0.0.0/0    reject
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+```bash
+# Check if PostgreSQL is running
+sudo systemctl status postgresql
+
+# Check PostgreSQL logs
+sudo tail -f /var/log/postgresql/postgresql-*.log
+```
+
+### Authentication Failed
+
+1. Verify credentials in `settings.py`
+2. Check `pg_hba.conf` authentication method
+3. Ensure user has correct permissions:
+
+```sql
+-- Check user permissions
+\du gestion_user
+
+-- Grant necessary permissions
+GRANT ALL PRIVILEGES ON DATABASE gestion_de_tierras_bd TO gestion_user;
+```
+
+### Performance Issues
+
+```sql
+-- Check active connections
+SELECT * FROM pg_stat_activity WHERE datname = 'gestion_de_tierras_bd';
+
+-- Check slow queries
+SELECT query, calls, total_time, mean_time 
+FROM pg_stat_statements 
+ORDER BY mean_time DESC 
+LIMIT 10;
+```
+
+## Related Resources
+
+- [Settings Configuration](/configuration/settings)
+- [Deployment Guide](/configuration/deployment)
+- [Django Database Documentation](https://docs.djangoproject.com/en/5.2/ref/databases/)
+- [PostgreSQL Official Docs](https://www.postgresql.org/docs/)

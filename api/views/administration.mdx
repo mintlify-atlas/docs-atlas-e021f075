@@ -1,0 +1,486 @@
+---
+title: "Administration Views"
+description: "Administrator dashboard, user management, and role assignment views with notifications"
+---
+
+## Overview
+
+Administration views provide functionality for managing users, roles, and system permissions. These views include dashboards with statistics, user state management, and role assignment capabilities.
+
+## AdminView
+
+Administrator dashboard displaying user statistics, role distribution, and user management interface.
+
+### Class Definition
+
+```python
+class AdminView(LoginRequiredMixin, TemplateView):
+    template_name = 'administrador/administrador_dashboard.html'
+```
+
+**Source:** `administrador/views.py:85`
+
+### Authentication
+
+- **Required:** Yes
+- **Mixins:** `LoginRequiredMixin`
+- **Expected Role:** Administrator
+
+### Methods
+
+#### get_context_data()
+
+Provides comprehensive context including user statistics, role data, and chart information.
+
+```python
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    
+    # Permissions for role creation modal
+    context['permisos'] = Permission.objects.all()
+    
+    # Statistics
+    context['total_usuarios'] = User.objects.count()
+    context['ultima_actividad'] = User.objects.order_by(
+        '-last_login').first().last_login if User.objects.exists() else None
+    context['roles'] = Rol.objects.all()
+    
+    # User querysets for tabs
+    context['usuarios_todos'] = User.objects.all().order_by('-date_joined')
+    context['usuarios_pendientes'] = User.objects.filter(
+        estado='PENDIENTE').order_by('-date_joined')
+    context['usuarios_activos'] = User.objects.filter(
+        estado='ACTIVO').order_by('-date_joined')
+    context['usuarios_inactivos'] = User.objects.filter(
+        estado='INACTIVO').order_by('-date_joined')
+    
+    # Table columns configuration
+    context['columnas'] = [
+        {'nombre': 'Usuario', 'campo': 'username'},
+        {'nombre': 'Nombre', 'campo': 'first_name'},
+        {'nombre': 'Apellido', 'campo': 'last_name'},
+        {'nombre': 'Email', 'campo': 'email'},
+        {'nombre': 'Rol', 'campo': 'rol_nombre'},
+        {'nombre': 'Estado', 'campo': 'estado'},
+        {'nombre': 'Creado por', 'campo': 'creado_por'},
+        {'nombre': 'Último login', 'campo': 'last_login'},
+    ]
+    
+    # User evolution chart (last 12 months)
+    evolucion = (
+        User.objects.annotate(mes=TruncMonth('date_joined'))
+        .values('mes')
+        .annotate(cantidad=Count('id'))
+        .order_by('mes')
+    )
+    evolucion_fechas = [e['mes'].strftime('%b %Y') for e in evolucion]
+    evolucion_cantidades = [e['cantidad'] for e in evolucion]
+    context['evolucion_fechas'] = json.dumps(evolucion_fechas)
+    context['evolucion_cantidades'] = json.dumps(evolucion_cantidades)
+    
+    # Role distribution chart
+    roles = Rol.objects.all()
+    roles_labels = [rol.nombre for rol in roles]
+    roles_cantidades = [User.objects.filter(
+        rol=rol).count() for rol in roles]
+    context['roles_labels'] = json.dumps(roles_labels)
+    context['roles_cantidades'] = json.dumps(roles_cantidades)
+    
+    return context
+```
+
+**Source:** `administrador/views.py:88-141`
+
+### Context Data
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `permisos` | QuerySet | All available permissions |
+| `total_usuarios` | int | Total user count |
+| `ultima_actividad` | datetime | Last user login timestamp |
+| `roles` | QuerySet | All available roles |
+| `usuarios_todos` | QuerySet | All users ordered by join date |
+| `usuarios_pendientes` | QuerySet | Users with PENDIENTE status |
+| `usuarios_activos` | QuerySet | Users with ACTIVO status |
+| `usuarios_inactivos` | QuerySet | Users with INACTIVO status |
+| `evolucion_fechas` | JSON | Month labels for chart |
+| `evolucion_cantidades` | JSON | User counts per month |
+| `roles_labels` | JSON | Role names for chart |
+| `roles_cantidades` | JSON | User counts per role |
+
+---
+
+## Role Management Views
+
+### RolListView
+
+Lists all available roles in the system.
+
+```python
+class RolListView(LoginRequiredMixin, ListView):
+    model = Rol
+    template_name = 'administrador/listar_roles.html'
+    context_object_name = 'roles'
+```
+
+**Source:** `administrador/views.py:207`
+
+### RolCreateView
+
+Creates new roles with permissions and sends notifications to administrators.
+
+```python
+class RolCreateView(LoginRequiredMixin, CreateView):
+    model = Rol
+    fields = ['nombre', 'descripcion', 'color', 'permisos']
+    template_name = 'includes/administrador/modal/roles/crear_rol_modal.html'
+```
+
+**Source:** `administrador/views.py:213`
+
+#### form_valid()
+
+Handles role creation with permission assignment and notifications.
+
+```python
+def form_valid(self, form):
+    # Save role without permissions first
+    rol = form.save(commit=False)
+    rol.save()
+    
+    # Capture permissions from form
+    permisos_ids = self.request.POST.getlist('permisos')
+    if permisos_ids:
+        rol.permisos.set(permisos_ids)
+    
+    # Success message
+    messages.success(
+        self.request, f'Rol "{rol.nombre}" creado exitosamente!'
+    )
+    
+    # Notify admins
+    notificar_a_admins(
+        mensaje=f'Se ha creado un nuevo rol: "{rol.nombre}".',
+        tipo="INFO",
+        exclude_user=self.request.user,
+        link=reverse("listar_roles")
+    )
+    
+    return super().form_valid(form)
+```
+
+**Source:** `administrador/views.py:222-246`
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Create Role
+curl -X POST http://example.com/roles/crear/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Supervisor",
+    "descripcion": "Supervisa operaciones de campo",
+    "color": "#3B82F6",
+    "permisos": [1, 2, 5, 8]
+  }'
+```
+
+```json Success Response
+{
+  "success": true,
+  "message": "Rol 'Supervisor' creado exitosamente!",
+  "redirect": "/administrador/roles/"
+}
+```
+</CodeGroup>
+
+---
+
+## User Management Views
+
+### SimpleUserCreateView
+
+Allows administrators to create new users with predefined roles.
+
+```python
+class SimpleUserCreateView(CreateView):
+    form_class = SimpleUserCreationForm
+    template_name = 'administrador/crear_usuario.html'
+    success_url = reverse_lazy('administrador_dashboard')
+```
+
+**Source:** `administrador/views.py:288`
+
+#### form_valid()
+
+Creates user and notifies all administrators.
+
+```python
+def form_valid(self, form):
+    response = super().form_valid(form)
+    messages.success(
+        self.request, f'Usuario "{self.object.username}" creado exitosamente!')
+    
+    # Notify administrators
+    notificar_a_admins(
+        mensaje=f'Se ha registrado a: "{self.object.username}".',
+        tipo="INFO",
+        exclude_user=self.request.user,
+        link=reverse("administrador_dashboard")
+    )
+    return response
+```
+
+**Source:** `administrador/views.py:293-305`
+
+### asignar_rol_usuario()
+
+AJAX endpoint for assigning roles to users.
+
+```python
+@require_POST
+@login_required
+def asignar_rol_usuario(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        user_id = data.get("user_id")
+        rol_id = data.get("rol_id")
+        
+        usuario = get_object_or_404(User, id=user_id)
+        rol = get_object_or_404(Rol, id=rol_id)
+        
+        usuario.rol = rol
+        usuario.estado = "ACTIVO"  # Activate on role assignment
+        usuario.save()
+        
+        # Notify admins
+        notificar_a_admins(
+            mensaje=f'El usuario {usuario.username} fue asignado al rol "{rol.nombre}".',
+            tipo="INFO",
+            exclude_user=request.user
+        )
+        
+        return JsonResponse({
+            "success": True, 
+            "message": f"Rol '{rol.nombre}' asignado a {usuario.username}"
+        })
+    except Exception as e:
+        return JsonResponse({"success": False, "message": f"Error: {str(e)}"})
+```
+
+**Source:** `administrador/views.py:322-346`
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Assign Role
+curl -X POST http://example.com/admin/asignar-rol/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 42,
+    "rol_id": 3
+  }'
+```
+
+```json Success Response
+{
+  "success": true,
+  "message": "Rol 'Gerente' asignado a jdoe"
+}
+```
+
+```json Error Response
+{
+  "success": false,
+  "message": "Error: User matching query does not exist."
+}
+```
+</CodeGroup>
+
+---
+
+## cambiar_estado_usuario()
+
+AJAX endpoint for changing user active/inactive status.
+
+```python
+@csrf_exempt
+@require_POST
+def cambiar_estado_usuario(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'success': False, 'message': 'No autenticado'}, status=403)
+    
+    try:
+        data = json.loads(request.body)
+        user_id = data.get('user_id')
+        estado = data.get('estado')
+        user = User.objects.get(id=user_id)
+        
+        # Prevent deactivating superusers
+        if user.is_superuser and estado != 'ACTIVO':
+            return JsonResponse({
+                'warning': False, 
+                'message': 'No se puede desactivar un superusuario.'
+            }, status=400)
+        
+        if estado == 'ACTIVO':
+            user.estado = 'ACTIVO'
+            user.is_active = True
+        else:
+            user.estado = 'INACTIVO'
+            user.is_active = False
+        
+        user.save()
+        
+        # Notify admins
+        notificar_a_admins(
+            mensaje=f'El estado del usuario {user.username} fue cambiado a "{user.estado}"',
+            tipo="WARNING" if user.estado == "INACTIVO" else "SUCCESS",
+            exclude_user=request.user,
+            link=reverse("administrador_dashboard")
+        )
+        
+        return JsonResponse({
+            'success': True, 
+            'message': f'Estado actualizado a {user.estado} para {user.username}'
+        })
+    
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'Usuario no encontrado'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)})
+```
+
+**Source:** `administrador/views.py:352-387`
+
+### Protection Rules
+
+- **Superusers:** Cannot be deactivated
+- **Authentication:** Requires authenticated user
+- **CSRF:** Exempt (uses JSON body)
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Change Status
+curl -X POST http://example.com/admin/cambiar-estado/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 42,
+    "estado": "INACTIVO"
+  }'
+```
+
+```json Success Response
+{
+  "success": true,
+  "message": "Estado actualizado a INACTIVO para jdoe"
+}
+```
+
+```json Superuser Protection
+{
+  "warning": false,
+  "message": "No se puede desactivar un superusuario."
+}
+```
+</CodeGroup>
+
+---
+
+## edit_profile()
+
+Allows users to edit their own profile information.
+
+```python
+@login_required
+def edit_profile(request):
+    from .forms import CustomUserChangeForm
+    
+    form = CustomUserChangeForm(request.POST or None, instance=request.user)
+    
+    if request.method == 'POST':
+        if form.is_valid():
+            form.save()
+            rol_slug = request.user.rol_nombre.lower().replace(" ", "-")
+            nombre_url = f"{rol_slug}_dashboard"
+            messages.success(request, "Perfil actualizado correctamente.")
+            try:
+                return redirect(nombre_url)
+            except:
+                return redirect('home')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(
+                        request, f"Error en {form.fields[field].label}: {error}")
+    
+    return render(request, "registration/edit_profile.html", {"form": form})
+```
+
+**Source:** `administrador/views.py:393-415`
+
+### Features
+
+- Self-service profile editing
+- Role-based redirect after save
+- Field-level error reporting
+- Success/error messages
+
+---
+
+## Notification Integration
+
+All administrative actions trigger notifications to administrators using the `notificar_a_admins` utility.
+
+### Usage Pattern
+
+```python
+from core.notificaciones.utils import notificar_a_admins
+
+notificar_a_admins(
+    mensaje="User action description",
+    tipo="INFO",  # INFO, WARNING, SUCCESS, ERROR
+    exclude_user=request.user,
+    link=reverse("target_view")
+)
+```
+
+### Notification Types
+
+| Type | Used For | Color |
+|------|----------|-------|
+| `INFO` | New creations, assignments | Blue |
+| `WARNING` | Edits, status changes | Yellow |
+| `SUCCESS` | Activations | Green |
+| `ERROR` | Failures | Red |
+
+### Examples from Code
+
+- **Role Creation:** INFO notification with link to role list
+- **User Creation:** INFO notification with link to dashboard
+- **Role Assignment:** INFO notification
+- **Status Change:** WARNING (inactive) or SUCCESS (active)
+- **Profile Edit:** Not notified (self-service)
+
+---
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/views/authentication">
+    Login and signup views
+  </Card>
+  <Card title="User Model" icon="user" href="/api/models/user">
+    User model with estado field
+  </Card>
+  <Card title="Rol Model" icon="shield" href="/api/models/rol">
+    Role and permission model
+  </Card>
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Notification system utilities
+  </Card>
+</CardGroup>

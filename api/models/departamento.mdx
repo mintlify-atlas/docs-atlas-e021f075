@@ -1,0 +1,209 @@
+---
+title: 'Departamento'
+description: 'Geographic administrative division model representing departments'
+icon: 'map-location-dot'
+---
+
+## Overview
+
+The `Departamento` model represents the highest level of geographic administrative divisions in the system. Each department contains multiple districts and has an auto-generated unique code.
+
+## Fields
+
+<ParamField path="id" type="AutoField" required>
+  Primary key automatically generated
+</ParamField>
+
+<ParamField path="nombre" type="string" required>
+  Name of the department
+  - **Max length**: 200 characters
+  - **Unique**: Yes
+  - **Indexed**: Yes (for faster queries)
+</ParamField>
+
+<ParamField path="codigo" type="PositiveInteger">
+  Unique numeric code for the department
+  - **Unique**: Yes
+  - **Nullable**: Yes (auto-generated on save)
+  - **Auto-generated**: First available number starting from 1
+</ParamField>
+
+## Methods
+
+### `save()`
+
+Overridden to auto-generate the `codigo` field if not provided.
+
+```python
+def save(self, *args, **kwargs):
+    if not self.codigo:
+        # Obtener los códigos existentes
+        codigos_existentes = list(
+            self.__class__.objects.exclude(codigo__isnull=True)
+            .values_list("codigo", flat=True)
+        )
+
+        # Buscar el primer número libre
+        nuevo_codigo = 1
+        while nuevo_codigo in codigos_existentes:
+            nuevo_codigo += 1
+
+        self.codigo = nuevo_codigo
+
+    super().save(*args, **kwargs)
+```
+
+**Logic**: Finds the first available positive integer not already used by existing departments.
+
+### `__str__()`
+
+Returns the string representation of the department.
+
+```python
+def __str__(self):
+    return self.nombre
+```
+
+**Returns**: Department name
+
+## Relationships
+
+### Reverse Relationships
+- **distritos**: Districts belonging to this department (via `Distrito.departamento` ForeignKey)
+
+## Meta Options
+
+```python
+class Meta:
+    verbose_name = "Departamento"
+    verbose_name_plural = "Departamentos"
+    ordering = ["codigo", "nombre"]
+```
+
+### Ordering
+Departments are ordered by:
+1. `codigo` (numeric code)
+2. `nombre` (alphabetically if codes are equal)
+
+## Complete Model Definition
+
+```python
+from django.db import models
+
+class Departamento(models.Model):
+    nombre = models.CharField(
+        max_length=200, 
+        unique=True, 
+        db_index=True
+    )
+    codigo = models.PositiveIntegerField(
+        blank=True, 
+        null=True, 
+        unique=True
+    )
+
+    class Meta:
+        verbose_name = "Departamento"
+        verbose_name_plural = "Departamentos"
+        ordering = ["codigo", "nombre"]
+
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            # Obtener los códigos existentes
+            codigos_existentes = list(
+                self.__class__.objects.exclude(codigo__isnull=True)
+                .values_list("codigo", flat=True)
+            )
+
+            # Buscar el primer número libre
+            nuevo_codigo = 1
+            while nuevo_codigo in codigos_existentes:
+                nuevo_codigo += 1
+
+            self.codigo = nuevo_codigo
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.nombre
+```
+
+## Usage Example
+
+```python
+from core.models import Departamento
+
+# Create a new department (codigo is auto-generated)
+departamento = Departamento.objects.create(
+    nombre='Central'
+)
+print(departamento.codigo)  # Output: 1 (or next available number)
+
+# Create another department
+departamento2 = Departamento.objects.create(
+    nombre='Alto Paraná'
+)
+print(departamento2.codigo)  # Output: 2
+
+# Manually set codigo (not recommended)
+departamento3 = Departamento.objects.create(
+    nombre='Itapúa',
+    codigo=10
+)
+
+# Query departments
+departamentos = Departamento.objects.all().order_by('nombre')
+
+# Access related districts
+central = Departamento.objects.get(nombre='Central')
+distritos = central.distritos.all()
+print(f"{central.nombre} has {distritos.count()} districts")
+```
+
+## Auto-Generated Codigo Logic
+
+The `codigo` field is automatically generated using a gap-filling algorithm:
+
+1. **On first save**: If `codigo` is not provided, the system queries all existing codes
+2. **Find gaps**: Starting from 1, it finds the first number not in use
+3. **Assign code**: The first available number is assigned
+
+### Example Sequence
+
+| Order | Department | Auto-generated Codigo |
+|-------|------------|-----------------------|
+| 1st   | Central    | 1                     |
+| 2nd   | Itapúa     | 2                     |
+| 3rd   | Alto Paraná| 3                     |
+
+If department with codigo=2 is deleted and a new one is created:
+
+| Order | Department | Auto-generated Codigo |
+|-------|------------|-----------------------|
+| 4th   | Caaguazú   | 2 (fills the gap)     |
+
+## Query Examples
+
+### Get department with its districts
+```python
+departamento = Departamento.objects.prefetch_related('distritos').get(id=1)
+for distrito in departamento.distritos.all():
+    print(distrito.nombre)
+```
+
+### Find department by codigo
+```python
+departamento = Departamento.objects.get(codigo=1)
+```
+
+### Count districts per department
+```python
+from django.db.models import Count
+
+departamentos = Departamento.objects.annotate(
+    num_distritos=Count('distritos')
+).order_by('-num_distritos')
+
+for dept in departamentos:
+    print(f"{dept.nombre}: {dept.num_distritos} distritos")
+```

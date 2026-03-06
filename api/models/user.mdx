@@ -1,0 +1,313 @@
+---
+title: 'User'
+description: 'Custom user model extending AbstractUser with role-based permissions and state management'
+icon: 'user'
+---
+
+## Overview
+
+The `User` model extends Django's `AbstractUser` to provide a custom user authentication system with role-based access control, state management, and profile information. It integrates with the `Rol` model for flexible permission management.
+
+## Fields
+
+<ParamField path="id" type="AutoField" required>
+  Primary key automatically generated
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  Unique username for login (inherited from AbstractUser)
+</ParamField>
+
+<ParamField path="email" type="string">
+  User email address (inherited from AbstractUser)
+</ParamField>
+
+<ParamField path="first_name" type="string">
+  User's first name (inherited from AbstractUser)
+</ParamField>
+
+<ParamField path="last_name" type="string">
+  User's last name (inherited from AbstractUser)
+</ParamField>
+
+<ParamField path="ci" type="string">
+  Cédula de Identidad (National ID)
+  - **Length**: 7-8 numeric digits
+  - **Validation**: Must match regex `^[0-9]{7,8}$`
+  - **Nullable**: Yes
+</ParamField>
+
+<ParamField path="rol" type="ForeignKey">
+  Relationship to `Rol` model
+  - **On delete**: SET_NULL
+  - **Nullable**: Yes
+  - **Related name**: Not explicitly set
+</ParamField>
+
+<ParamField path="estado" type="string" required>
+  Account state with choices:
+  - `PENDIENTE`: Pending approval
+  - `ACTIVO`: Active
+  - `INACTIVO`: Inactive
+  - **Default**: `PENDIENTE`
+</ParamField>
+
+<ParamField path="telefono" type="string">
+  Phone number
+  - **Length**: 10 numeric digits
+  - **Validation**: Must match regex `^[0-9]{10}$`
+  - **Nullable**: Yes
+</ParamField>
+
+<ParamField path="creado_por" type="string" required>
+  Tracks who created the user account
+  - **Choices**:
+    - `usuario`: Created by user (self-registration)
+    - `admin`: Created by administrator
+  - **Default**: `usuario`
+</ParamField>
+
+<ParamField path="fecha_actualizacion" type="DateTime">
+  Automatically updated timestamp on every save
+</ParamField>
+
+<ParamField path="groups" type="ManyToManyField">
+  Django groups with custom related names to avoid conflicts
+  - **Related name**: `custom_user_groups`
+  - **Related query name**: `custom_user`
+</ParamField>
+
+<ParamField path="user_permissions" type="ManyToManyField">
+  Specific user permissions with custom related names
+  - **Related name**: `custom_user_permissions`
+  - **Related query name**: `custom_user`
+</ParamField>
+
+## Methods & Properties
+
+### `rol_efectivo` (Property)
+
+Returns the effective role for the user, handling superusers with a special "administrador" role.
+
+```python
+@property
+def rol_efectivo(self):
+    """
+    Devuelve siempre un objeto con atributos de Rol.
+    Si es superuser, crea un 'rol falso' llamado Administrador.
+    """
+    if self.is_superuser:
+        return type('RolFake', (), {
+            'nombre': 'administrador',
+            'color': 'danger'
+        })()
+    return self.rol
+```
+
+**Returns**: Rol object or fake role object for superusers
+
+### `rol_nombre` (Property)
+
+Returns the name of the effective role.
+
+```python
+@property
+def rol_nombre(self):
+    """
+    Devuelve el nombre del rol efectivo.
+    """
+    return self.rol_efectivo.nombre if self.rol_efectivo else "Sin rol"
+```
+
+**Returns**: String with role name or "Sin rol"
+
+### `get_rol_color()`
+
+Returns the color associated with the user's role for UI display.
+
+```python
+def get_rol_color(self):
+    return self.rol_efectivo.color if self.rol_efectivo else 'light'
+```
+
+**Returns**: String with color name (e.g., "primary", "danger", "light")
+
+### `__str__()`
+
+String representation showing username and state.
+
+```python
+def __str__(self):
+    return f"{self.username} ({self.get_estado_display()})"
+```
+
+## Relationships
+
+### Foreign Keys
+- **rol**: Links to `Rol` model for role-based permissions
+
+### Reverse Relationships
+- **solicitudes_creadas**: Solicitudes created by this user
+
+## Meta Options
+
+### Custom Permissions
+
+```python
+class Meta:
+    permissions = [
+        ("asignar_roles", "Puede asignar roles a usuarios"),
+        ("aprobar_usuarios", "Puede aprobar usuarios pendientes"),
+    ]
+```
+
+The model defines two custom permissions:
+- `asignar_roles`: Allows assigning roles to users
+- `aprobar_usuarios`: Allows approving pending users
+
+## Validation Rules
+
+### CI (Cédula de Identidad)
+- Must be 7 or 8 numeric digits
+- Validated using `RegexValidator(regex='^[0-9]{7,8}$')`
+
+### Telefono (Phone)
+- Must be exactly 10 numeric digits
+- Validated using `RegexValidator(regex='^[0-9]{10}$')`
+
+## Complete Model Definition
+
+```python
+from django.contrib.auth.models import AbstractUser, Group, Permission
+from django.db import models
+from django.core.validators import RegexValidator
+from django.conf import settings
+
+class User(AbstractUser):
+    CREADO_POR_CHOICES = (
+        ('usuario', 'Usuario'),
+        ('admin', 'Administrador'),
+    )
+
+    creado_por = models.CharField(
+        max_length=20,
+        choices=CREADO_POR_CHOICES,
+        default='usuario',
+        verbose_name='Creado por'
+    )
+    
+    ESTADOS = (
+        ('PENDIENTE', 'Pendiente de aprobación'),
+        ('ACTIVO', 'Activo'),
+        ('INACTIVO', 'Inactivo'),
+    )
+    
+    ci = models.CharField(
+        max_length=8,
+        blank=True,
+        null=True,
+        validators=[RegexValidator(
+            regex='^[0-9]{7,8}$',
+            message='La cédula debe tener 7 u 8 dígitos numéricos.'
+        )],
+        verbose_name='Cédula de Identidad'
+    )
+    rol = models.ForeignKey(
+        Rol,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='Rol asignado'
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADOS,
+        default='PENDIENTE',
+        verbose_name='Estado de cuenta'
+    )
+    telefono = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        validators=[RegexValidator(
+            regex='^[0-9]{10}$',
+            message='El teléfono debe tener 10 dígitos numéricos.'
+        )]
+    )
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        permissions = [
+            ("asignar_roles", "Puede asignar roles a usuarios"),
+            ("aprobar_usuarios", "Puede aprobar usuarios pendientes"),
+        ]
+
+    groups = models.ManyToManyField(
+        Group,
+        verbose_name='grupos',
+        blank=True,
+        help_text='Los grupos a los que pertenece este usuario.',
+        related_name="custom_user_groups",
+        related_query_name="custom_user",
+    )
+    user_permissions = models.ManyToManyField(
+        Permission,
+        verbose_name='permisos de usuario',
+        blank=True,
+        help_text='Los permisos específicos de este usuario.',
+        related_name="custom_user_permissions",
+        related_query_name="custom_user",
+    )
+
+    @property
+    def rol_efectivo(self):
+        if self.is_superuser:
+            return type('RolFake', (), {
+                'nombre': 'administrador',
+                'color': 'danger'
+            })()
+        return self.rol
+
+    @property
+    def rol_nombre(self):
+        return self.rol_efectivo.nombre if self.rol_efectivo else "Sin rol"
+
+    def get_rol_color(self):
+        return self.rol_efectivo.color if self.rol_efectivo else 'light'
+
+    def __str__(self):
+        return f"{self.username} ({self.get_estado_display()})"
+```
+
+## Usage Example
+
+```python
+from administrador.models import User, Rol
+
+# Create a role first
+rol_coordinador = Rol.objects.create(
+    nombre='Coordinador',
+    descripcion='Coordina relevamientos',
+    color='primary'
+)
+
+# Create a user with the role
+user = User.objects.create_user(
+    username='jperez',
+    email='jperez@example.com',
+    password='securepass123',
+    ci='12345678',
+    telefono='0981234567',
+    rol=rol_coordinador,
+    estado='ACTIVO',
+    creado_por='admin'
+)
+
+# Access role information
+print(user.rol_nombre)  # Output: Coordinador
+print(user.get_rol_color())  # Output: primary
+
+# Check effective role
+if user.rol_efectivo:
+    print(f"User has role: {user.rol_efectivo.nombre}")
+```

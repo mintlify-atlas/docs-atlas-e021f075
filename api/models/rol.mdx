@@ -1,0 +1,194 @@
+---
+title: 'Rol'
+description: 'Role model for managing user permissions and access control'
+icon: 'shield-halved'
+---
+
+## Overview
+
+The `Rol` model provides a flexible role-based access control system with customizable permissions. Each role can have multiple Django permissions associated with it and a color for UI representation.
+
+## Fields
+
+<ParamField path="id" type="AutoField" required>
+  Primary key automatically generated
+</ParamField>
+
+<ParamField path="nombre" type="string" required>
+  Unique name of the role
+  - **Max length**: 50 characters
+  - **Unique**: Yes
+  - **Verbose name**: "Nombre del Rol"
+</ParamField>
+
+<ParamField path="descripcion" type="text">
+  Detailed description of the role's purpose and responsibilities
+  - **Blank**: Yes (optional)
+</ParamField>
+
+<ParamField path="permisos" type="ManyToManyField">
+  Django permissions associated with this role
+  - **Related to**: `Permission` model
+  - **Blank**: Yes
+  - **Verbose name**: "Permisos asociados"
+  - **Help text**: "Selecciona permisos específicos para este rol"
+</ParamField>
+
+<ParamField path="color" type="string">
+  Color identifier for UI representation
+  - **Max length**: 20 characters
+  - **Default**: `secondary`
+  - **Help text**: "Color para representar el rol (ej: primary, danger)"
+  - **Common values**: primary, secondary, success, danger, warning, info, light, dark
+</ParamField>
+
+## Methods
+
+### `__str__()`
+
+Returns the string representation of the role.
+
+```python
+def __str__(self):
+    return self.nombre
+```
+
+**Returns**: String with the role name
+
+## Relationships
+
+### Many-to-Many
+- **permisos**: Links to Django's `Permission` model for granular access control
+
+### Reverse Relationships
+- **user_set**: Users assigned to this role (via User.rol ForeignKey)
+
+## Meta Options
+
+```python
+class Meta:
+    verbose_name = 'Rol'
+    verbose_name_plural = 'Roles'
+    ordering = ['nombre']
+```
+
+### Ordering
+Roles are ordered alphabetically by `nombre` by default.
+
+## Complete Model Definition
+
+```python
+from django.contrib.auth.models import Permission
+from django.db import models
+
+class Rol(models.Model):
+    """
+    Modelo independiente para roles con permisos personalizables.
+    """
+    nombre = models.CharField(
+        max_length=50, 
+        unique=True, 
+        verbose_name='Nombre del Rol'
+    )
+    descripcion = models.TextField(blank=True)
+    permisos = models.ManyToManyField(
+        Permission,
+        blank=True,
+        verbose_name='Permisos asociados',
+        help_text='Selecciona permisos específicos para este rol'
+    )
+    color = models.CharField(
+        max_length=20,
+        default='secondary', 
+        help_text='Color para representar el rol (ej: primary, danger)'
+    )
+
+    class Meta:
+        verbose_name = 'Rol'
+        verbose_name_plural = 'Roles'
+        ordering = ['nombre']
+
+    def __str__(self):
+        return self.nombre
+```
+
+## Usage Example
+
+```python
+from django.contrib.auth.models import Permission
+from administrador.models import Rol
+
+# Create a new role
+rol = Rol.objects.create(
+    nombre='Relevador',
+    descripcion='Usuario encargado de realizar relevamientos en campo',
+    color='success'
+)
+
+# Add specific permissions
+permisos = Permission.objects.filter(
+    content_type__app_label='core',
+    codename__in=['add_relevamiento', 'change_relevamiento', 'view_relevamiento']
+)
+rol.permisos.set(permisos)
+
+# Assign role to users
+from administrador.models import User
+user = User.objects.get(username='jperez')
+user.rol = rol
+user.save()
+
+# Query users by role
+relevadores = User.objects.filter(rol=rol, estado='ACTIVO')
+```
+
+## Common Role Examples
+
+### Administrator Role
+```python
+admin_rol = Rol.objects.create(
+    nombre='Administrador',
+    descripcion='Acceso completo al sistema',
+    color='danger'
+)
+```
+
+### Coordinator Role
+```python
+coordinador_rol = Rol.objects.create(
+    nombre='Coordinador',
+    descripcion='Coordina y gestiona solicitudes de relevamiento',
+    color='primary'
+)
+```
+
+### Field Worker Role
+```python
+relevador_rol = Rol.objects.create(
+    nombre='Relevador',
+    descripcion='Realiza relevamientos en campo',
+    color='success'
+)
+```
+
+## Permission Management
+
+The `Rol` model integrates with Django's permission system. You can query and assign permissions programmatically:
+
+```python
+# Get all permissions for a specific app
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.models import Permission
+
+core_permissions = Permission.objects.filter(
+    content_type__app_label='core'
+)
+
+# Assign multiple permissions to a role
+rol.permisos.add(*core_permissions)
+
+# Check if a role has a specific permission
+has_permission = rol.permisos.filter(
+    codename='add_solicitud'
+).exists()
+```

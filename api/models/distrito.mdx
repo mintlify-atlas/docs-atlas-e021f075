@@ -1,0 +1,232 @@
+---
+title: 'Distrito'
+description: 'Geographic district model representing administrative subdivisions within departments'
+icon: 'map-pin'
+---
+
+## Overview
+
+The `Distrito` model represents districts, which are administrative subdivisions within departments. Each district belongs to exactly one department and can contain multiple colonies.
+
+## Fields
+
+<ParamField path="id" type="AutoField" required>
+  Primary key automatically generated
+</ParamField>
+
+<ParamField path="nombre" type="string" required>
+  Name of the district
+  - **Max length**: 200 characters
+  - **Note**: Must be unique per department (see unique_together)
+</ParamField>
+
+<ParamField path="departamento" type="ForeignKey" required>
+  Parent department
+  - **Related to**: `Departamento` model
+  - **On delete**: PROTECT (prevents deletion if districts exist)
+  - **Related name**: `distritos`
+</ParamField>
+
+<ParamField path="codigo" type="PositiveInteger">
+  Numeric code for the district
+  - **Unique**: No (can repeat across different departments)
+  - **Nullable**: Yes
+  - **Note**: Must be unique per department (see unique_together)
+</ParamField>
+
+## Constraints
+
+### unique_together
+
+The model enforces two unique constraints:
+
+```python
+class Meta:
+    unique_together = ("nombre", "departamento")
+    unique_together = ("codigo", "departamento")
+```
+
+1. **(nombre, departamento)**: A district name must be unique within its department
+2. **(codigo, departamento)**: A district code must be unique within its department
+
+<Note>
+The same district name or code can exist in different departments, but not within the same department.
+</Note>
+
+## Methods
+
+### `__str__()`
+
+Returns the string representation showing the district and its department.
+
+```python
+def __str__(self):
+    return f"{self.nombre} ({self.departamento.nombre})"
+```
+
+**Returns**: String in format "District Name (Department Name)"
+
+**Example**: "Asunción (Central)"
+
+## Relationships
+
+### Foreign Keys
+- **departamento**: Links to parent `Departamento` model
+
+### Reverse Relationships
+- **colonias**: Colonies associated with this district (via `Colonia.distritos` ManyToManyField)
+
+## Meta Options
+
+```python
+class Meta:
+    unique_together = ("nombre", "departamento")
+    unique_together = ("codigo", "departamento")
+    verbose_name = "Distrito"
+    verbose_name_plural = "Distritos"
+    ordering = ["departamento__nombre", "nombre"]
+```
+
+### Ordering
+Districts are ordered by:
+1. `departamento__nombre` (parent department name)
+2. `nombre` (district name alphabetically)
+
+## Complete Model Definition
+
+```python
+from django.db import models
+
+class Distrito(models.Model):
+    nombre = models.CharField(max_length=200)
+    departamento = models.ForeignKey(
+        Departamento, 
+        on_delete=models.PROTECT, 
+        related_name="distritos"
+    )
+    codigo = models.PositiveIntegerField(
+        blank=True, 
+        null=True, 
+        unique=False
+    )
+    
+    class Meta:
+        unique_together = ("nombre", "departamento")
+        unique_together = ("codigo", "departamento")
+        verbose_name = "Distrito"
+        verbose_name_plural = "Distritos"
+        ordering = ["departamento__nombre", "nombre"]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.departamento.nombre})"
+```
+
+## Usage Example
+
+```python
+from core.models import Departamento, Distrito
+
+# Get or create a department
+central = Departamento.objects.get(nombre='Central')
+
+# Create districts within the department
+asuncion = Distrito.objects.create(
+    nombre='Asunción',
+    departamento=central,
+    codigo=1
+)
+
+lambare = Distrito.objects.create(
+    nombre='Lambaré',
+    departamento=central,
+    codigo=2
+)
+
+# Query districts by department
+distritos_central = Distrito.objects.filter(
+    departamento=central
+).order_by('nombre')
+
+# Access related data
+print(asuncion)  # Output: "Asunción (Central)"
+print(f"Department: {asuncion.departamento.nombre}")
+
+# Get all colonies in a district
+colonias = asuncion.colonias.all()
+```
+
+## Validation Examples
+
+### Valid: Same name in different departments
+```python
+# This is VALID - same name in different departments
+central = Departamento.objects.get(nombre='Central')
+itapua = Departamento.objects.get(nombre='Itapúa')
+
+Distrito.objects.create(
+    nombre='San Pedro',
+    departamento=central,
+    codigo=10
+)
+
+Distrito.objects.create(
+    nombre='San Pedro',  # Same name, different department - OK
+    departamento=itapua,
+    codigo=10  # Same code, different department - OK
+)
+```
+
+### Invalid: Duplicate name in same department
+```python
+# This will FAIL - duplicate name in same department
+from django.db import IntegrityError
+
+central = Departamento.objects.get(nombre='Central')
+
+try:
+    Distrito.objects.create(
+        nombre='Asunción',
+        departamento=central
+    )
+    Distrito.objects.create(
+        nombre='Asunción',  # Duplicate in same department
+        departamento=central
+    )
+except IntegrityError:
+    print("Cannot create duplicate distrito in same departamento")
+```
+
+## Query Examples
+
+### Get all districts with their department
+```python
+distritos = Distrito.objects.select_related('departamento').all()
+for distrito in distritos:
+    print(f"{distrito.nombre} - {distrito.departamento.nombre}")
+```
+
+### Filter districts by department
+```python
+central_districts = Distrito.objects.filter(
+    departamento__nombre='Central'
+).order_by('codigo')
+```
+
+### Count colonies per district
+```python
+from django.db.models import Count
+
+distritos = Distrito.objects.annotate(
+    num_colonias=Count('colonias')
+).filter(num_colonias__gt=0)
+
+for distrito in distritos:
+    print(f"{distrito.nombre}: {distrito.num_colonias} colonias")
+```
+
+### Find districts without colonies
+```python
+distritos_sin_colonias = Distrito.objects.annotate(
+    num_colonias=Count('colonias')
+).filter(num_colonias=0)
+```

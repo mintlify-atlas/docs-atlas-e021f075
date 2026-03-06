@@ -1,0 +1,300 @@
+---
+title: Administrator Guide
+description: Complete guide for system administrators managing users, roles, and permissions in Gestión de Tierras
+---
+
+## Overview
+
+The Administrator Dashboard is the central hub for managing users, roles, and system-wide permissions. Administrators have full control over user approvals, role assignments, and account status management.
+
+<Note>
+  Only users with the Administrator role can access these features. All actions are logged and trigger notifications to other administrators.
+</Note>
+
+## Dashboard Overview
+
+When you log in as an administrator, you'll see the Administrator Dashboard with four key metrics:
+
+- **Total Users**: Complete count of all registered users in the system
+- **Pending Users**: Users awaiting role assignment (status: PENDIENTE)
+- **Active Users**: Users with active accounts and assigned roles
+- **Inactive Users**: Deactivated user accounts
+
+### User Management Tabs
+
+The dashboard includes four tabs to organize users by status:
+
+1. **All**: Complete list of all users regardless of status
+2. **Pending**: Users registered but not yet assigned a role
+3. **Active**: Users with ACTIVO status who can access the system
+4. **Inactive**: Deactivated users who cannot log in
+
+<Tip>
+  Use the export buttons (CSV, Excel, Print) in the header to generate user reports for auditing purposes.
+</Tip>
+
+## User Approval Workflow
+
+When a new user registers through the signup form, they enter a pending state. Here's how to approve them:
+
+<Steps>
+  <Step title="Locate Pending Users">
+    Click the **Pending** tab in the Administrator Dashboard. You'll see all users with estado = "PENDIENTE" who have not yet been assigned a role.
+  </Step>
+  
+  <Step title="Review User Information">
+    Each user row displays:
+    - Username and full name
+    - Email address
+    - Registration date (date_joined)
+    - Creator (creado_por): whether they self-registered or were created by an admin
+    - Last login time
+  </Step>
+  
+  <Step title="Assign a Role">
+    Click the actions dropdown (⋮) for the user and select **Assign Role**. A modal will appear with:
+    - User's full details
+    - Dropdown list of available roles
+    
+    Select the appropriate role and click **Assign Role**.
+  </Step>
+  
+  <Step title="Automatic Activation">
+    When you assign a role, the user's estado automatically changes from "PENDIENTE" to "ACTIVO", granting them access to their role-specific dashboard.
+  </Step>
+</Steps>
+
+<Note>
+  Users in PENDIENTE status will see the "Pending Approval" screen when they log in. They cannot access any system features until approved.
+</Note>
+
+## Role Management
+
+### Understanding Roles
+
+Roles in Gestión de Tierras define:
+- Dashboard access level (e.g., gerente_dashboard, administrador_dashboard)
+- Permissions for specific actions
+- Visual badge color for identification
+
+### Creating a New Role
+
+<Steps>
+  <Step title="Navigate to Roles">
+    From the Administrator Dashboard sidebar, click **Roles** or navigate to `/administrador/roles/`.
+  </Step>
+  
+  <Step title="Open Creation Modal">
+    Click the **Create Role** button to open the role creation form.
+  </Step>
+  
+  <Step title="Enter Role Details">
+    Fill in:
+    - **Name**: Unique role identifier (e.g., "Gerente", "Coordinador")
+    - **Description**: Purpose and responsibilities of the role
+    - **Color**: Badge color for visual identification (primary, success, danger, etc.)
+  </Step>
+  
+  <Step title="Assign Permissions">
+    Select permissions from the available list. Permissions control:
+    - View access to specific modules
+    - Edit/delete capabilities
+    - Special actions (e.g., asignar_roles, aprobar_usuarios)
+  </Step>
+  
+  <Step title="Save Role">
+    Click **Create Role**. The system will:
+    - Validate the role name is unique
+    - Save permissions to the database
+    - Notify other administrators
+  </Step>
+</Steps>
+
+### Editing Existing Roles
+
+To modify a role:
+
+1. Go to the Roles list page
+2. Click the **Edit** button for the role
+3. Update name, description, color, or permissions
+4. Click **Update Role**
+
+<Warning>
+  Changes to role permissions affect all users assigned to that role immediately. Use caution when modifying critical roles like Administrator or Gerente.
+</Warning>
+
+### Deleting Roles
+
+You can only delete roles that have no users assigned. If users exist with that role:
+
+1. Reassign those users to different roles first
+2. Then delete the empty role from the Roles list
+
+## Assigning Roles to Users
+
+There are two ways to assign roles:
+
+### Method 1: From Dashboard (Recommended)
+
+<Steps>
+  <Step title="Find the User">
+    Navigate to the appropriate tab (All, Pending, Active, or Inactive).
+  </Step>
+  
+  <Step title="Open Actions Menu">
+    Click the dropdown (⋮) next to the user and select **Assign Role**.
+  </Step>
+  
+  <Step title="Select Role">
+    Choose the role from the dropdown and click **Assign Role**.
+  </Step>
+</Steps>
+
+### Method 2: When Creating Users
+
+When you create a user as an administrator (via **Create User** button):
+
+1. Fill in all required personal information
+2. Select the role during creation
+3. The user is created with ACTIVO status automatically
+
+<Tip>
+  Users created by administrators (creado_por = "admin") skip the pending approval process and are immediately active.
+</Tip>
+
+## Account Status Management
+
+### Activating Users
+
+To activate an inactive or pending user:
+
+<Steps>
+  <Step title="Locate the User">
+    Go to the Inactive or Pending tab as appropriate.
+  </Step>
+  
+  <Step title="Activate Account">
+    Click the actions dropdown (⋮) and select **Activate**.
+  </Step>
+  
+  <Step title="Confirm Action">
+    The user's estado changes to ACTIVO and is_active flag is set to True, allowing login.
+  </Step>
+</Steps>
+
+### Deactivating Users
+
+To temporarily disable a user account:
+
+<Steps>
+  <Step title="Find Active User">
+    Go to the Active or All tab.
+  </Step>
+  
+  <Step title="Deactivate Account">
+    Click the actions dropdown (⋮) and select **Deactivate**.
+  </Step>
+  
+  <Step title="Effect of Deactivation">
+    - User estado becomes "INACTIVO"
+    - is_active flag becomes False
+    - User cannot log in until reactivated
+    - Existing sessions are terminated
+  </Step>
+</Steps>
+
+<Warning>
+  You cannot deactivate superuser accounts. The system will reject this action with a warning message.
+</Warning>
+
+## User Statistics and Analytics
+
+The Administrator Dashboard includes two interactive charts:
+
+### User Growth Chart
+
+Displays the evolution of user registrations over the last 12 months:
+- X-axis: Month and year
+- Y-axis: Number of new users registered
+- Helps identify registration trends and growth patterns
+
+### Role Distribution Chart
+
+Pie chart showing:
+- Count of users per role
+- Visual breakdown of role assignments
+- Helps balance workload across teams
+
+<Tip>
+  Monitor the Pending Users count regularly. A high number indicates users waiting for approval and may require attention.
+</Tip>
+
+## System Notifications
+
+Administrators receive automatic notifications for:
+
+- New user registrations (when creado_por = "usuario")
+- Role assignments and changes
+- User status changes (activation/deactivation)
+- New role creation or modification
+
+<Note>
+  Notifications appear in the top-right notification bell icon. You can access the notification center from any page.
+</Note>
+
+## Best Practices
+
+### Role Assignment Strategy
+
+1. **Define Clear Roles**: Create roles that map to actual job functions (e.g., Gerente for managers, Coordinador for coordinators)
+2. **Minimal Permissions**: Assign only the permissions each role truly needs
+3. **Regular Audits**: Periodically review role assignments to ensure they're still appropriate
+4. **Document Roles**: Use the description field to clearly explain each role's purpose
+
+### User Approval Process
+
+1. **Review Registration Details**: Check user's name, email, and CI (cédula) for validity
+2. **Verify Identity**: If possible, confirm the user's identity before approval
+3. **Appropriate Role**: Assign the correct role based on the user's actual position
+4. **Monitor Pending Queue**: Check the Pending tab at least daily
+
+### Account Management
+
+1. **Use Deactivation, Not Deletion**: Deactivate users instead of deleting to preserve audit trails
+2. **Reactivate Carefully**: Verify the reason before reactivating an inactive account
+3. **Track Last Login**: Use the last_login field to identify inactive accounts that should be reviewed
+
+## Troubleshooting
+
+### User Can't Access Their Dashboard
+
+**Check:**
+- User estado is "ACTIVO"
+- User has a role assigned (not null)
+- User's role has appropriate permissions
+- Role name matches expected dashboard route (e.g., "gerente" role routes to gerente_dashboard)
+
+### Role Assignment Fails
+
+**Possible causes:**
+- Role ID is invalid or role was deleted
+- Network error during request
+- User account has restrictions (check is_superuser status)
+
+**Solution:** Refresh the page and try again. Check browser console for errors.
+
+### Cannot Delete Role
+
+**Reason:** Role is still assigned to one or more users.
+
+**Solution:**
+1. Go to the All Users tab
+2. Filter or search for users with that role
+3. Reassign them to different roles
+4. Retry role deletion
+
+## Related Workflows
+
+For complete end-to-end workflows involving user management, see:
+- [Complete Workflows Guide](/guides/workflows) - User lifecycle from registration to role assignment
+- [Manager Guide](/guides/manager) - How managers work with the system after approval

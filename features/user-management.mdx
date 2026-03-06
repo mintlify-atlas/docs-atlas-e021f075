@@ -1,0 +1,353 @@
+---
+title: User Management
+description: Comprehensive user account lifecycle management with custom fields and state transitions
+---
+
+## Overview
+
+The user management system extends Django's `AbstractUser` to provide custom fields, state-based account lifecycle, and role-based access control. Users can self-register or be created by administrators, with different workflows for each scenario.
+
+## User Model
+
+The custom `User` model is defined in `administrador/models.py` and includes fields for identity verification, contact information, and account state management.
+
+### Key Fields
+
+```python
+class User(AbstractUser):
+    # Identity and contact
+    ci = models.CharField(
+        max_length=8,
+        validators=[RegexValidator(
+            regex='^[0-9]{7,8}$',
+            message='La cédula debe tener 7 u 8 dígitos numéricos.'
+        )],
+        verbose_name='Cédula de Identidad'
+    )
+    telefono = models.CharField(
+        max_length=10,
+        validators=[RegexValidator(
+            regex='^[0-9]{10}$',
+            message='El teléfono debe tener 10 dígitos numéricos.'
+        )]
+    )
+    
+    # Role and state management
+    rol = models.ForeignKey(
+        Rol,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADOS,
+        default='PENDIENTE'
+    )
+    
+    # Creation tracking
+    creado_por = models.CharField(
+        max_length=20,
+        choices=CREADO_POR_CHOICES,
+        default='usuario'
+    )
+```
+
+## User States
+
+Users transition through three states during their lifecycle:
+
+<AccordionGroup>
+  <Accordion title="PENDIENTE" icon="clock">
+    Initial state for self-registered users. Accounts cannot access the system until approved by an administrator.
+    
+    - Default state for `SignUpView` registrations
+    - Users must wait for admin approval
+    - Login attempts are blocked
+  </Accordion>
+  
+  <Accordion title="ACTIVO" icon="check">
+    Active users with full system access based on their assigned role.
+    
+    - Can log in and access role-specific dashboards
+    - Default state for admin-created users
+    - Activated when admin approves pending user
+  </Accordion>
+  
+  <Accordion title="INACTIVO" icon="ban">
+    Deactivated accounts that retain data but cannot access the system.
+    
+    - `is_active` set to `False`
+    - Login attempts are blocked
+    - Can be reactivated by administrators
+  </Accordion>
+</AccordionGroup>
+
+## User Creation Workflows
+
+### Self-Registration
+
+Users can register themselves through the public signup form:
+
+```python administrador/views.py:148
+class SignUpView(CreateView):
+    form_class = CustomUserCreationForm
+    success_url = reverse_lazy("login")
+    template_name = "registration/signup.html"
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(
+            self.request,
+            "¡Registro exitoso! Por favor inicia sesión."
+        )
+        return response
+```
+
+<Steps>
+  <Step title="User fills registration form">
+    Provides username, email, password, CI, and phone number
+  </Step>
+  <Step title="Account created with PENDIENTE state">
+    User is created with `estado='PENDIENTE'` and `creado_por='usuario'`
+  </Step>
+  <Step title="Admin reviews pending users">
+    Administrators see pending users in the dashboard
+  </Step>
+  <Step title="Admin approves and assigns role">
+    Changes state to ACTIVO and assigns appropriate role
+  </Step>
+</Steps>
+
+### Admin-Created Users
+
+Administrators can create users directly with immediate activation:
+
+```python administrador/views.py:288
+class SimpleUserCreateView(CreateView):
+    form_class = SimpleUserCreationForm
+    template_name = 'administrador/crear_usuario.html'
+    success_url = reverse_lazy('administrador_dashboard')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(
+            self.request, 
+            f'Usuario "{self.object.username}" creado exitosamente!'
+        )
+        # Notify all administrators
+        notificar_a_admins(
+            mensaje=f'Se ha registrado a: "{self.object.username}".',
+            tipo="INFO",
+            exclude_user=self.request.user,
+            link=reverse("administrador_dashboard")
+        )
+        return response
+```
+
+<Note>
+Admin-created users typically start in the `ACTIVO` state with a role already assigned, bypassing the approval workflow.
+</Note>
+
+## User State Management
+
+Administrators can change user states through AJAX endpoints:
+
+```python administrador/views.py:354
+@csrf_exempt
+@require_POST
+def cambiar_estado_usuario(request):
+    try:
+        data = json.loads(request.body)
+        user_id = data.get('user_id')
+        estado = data.get('estado')
+        user = User.objects.get(id=user_id)
+
+        # Superusers cannot be deactivated
+        if user.is_superuser and estado != 'ACTIVO':
+            return JsonResponse({
+                'warning': False, 
+                'message': 'No se puede desactivar un superusuario.'
+            }, status=400)
+
+        if estado == 'ACTIVO':
+            user.estado = 'ACTIVO'
+            user.is_active = True
+        else:
+            user.estado = 'INACTIVO'
+            user.is_active = False
+
+        user.save()
+        
+        # Notify administrators of state change
+        notificar_a_admins(
+            mensaje=f'El estado del usuario {user.username} fue cambiado a "{user.estado}"',
+            tipo="WARNING" if user.estado == "INACTIVO" else "SUCCESS",
+            exclude_user=request.user,
+            link=reverse("administrador_dashboard")
+        )
+
+        return JsonResponse({
+            'success': True, 
+            'message': f'Estado actualizado a {user.estado} para {user.username}'
+        })
+
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'Usuario no encontrado'})
+```
+
+## Role Assignment
+
+Administrators can assign roles to users, which automatically activates pending accounts:
+
+```python administrador/views.py:324
+@require_POST
+@login_required
+def asignar_rol_usuario(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        user_id = data.get("user_id")
+        rol_id = data.get("rol_id")
+
+        usuario = get_object_or_404(User, id=user_id)
+        rol = get_object_or_404(Rol, id=rol_id)
+
+        usuario.rol = rol
+        usuario.estado = "ACTIVO"  # Automatically activate on role assignment
+        usuario.save()
+        
+        notificar_a_admins(
+            mensaje=f'El usuario {usuario.username} fue asignado al rol "{rol.nombre}".',
+            tipo="INFO",
+            exclude_user=request.user
+        )
+
+        return JsonResponse({
+            "success": True, 
+            "message": f"Rol '{rol.nombre}' asignado a {usuario.username}"
+        })
+    except Exception as e:
+        return JsonResponse({"success": False, "message": f"Error: {str(e)}"})
+```
+
+## Custom Properties
+
+The User model includes helper properties for role display:
+
+```python administrador/models.py:113
+@property
+def rol_efectivo(self):
+    """
+    Returns a role object for all users.
+    Superusers get a fake 'Administrador' role.
+    """
+    if self.is_superuser:
+        return type('RolFake', (), {
+            'nombre': 'administrador',
+            'color': 'danger'
+        })()
+    return self.rol
+
+@property
+def rol_nombre(self):
+    """Returns the effective role name."""
+    return self.rol_efectivo.nombre if self.rol_efectivo else "Sin rol"
+
+def get_rol_color(self):
+    return self.rol_efectivo.color if self.rol_efectivo else 'light'
+```
+
+<Tip>
+The `rol_efectivo` property ensures that superusers always have a role display, even without an explicit role assignment.
+</Tip>
+
+## Custom Permissions
+
+The User model defines custom permissions for administrative tasks:
+
+```python administrador/models.py:89
+class Meta:
+    permissions = [
+        ("asignar_roles", "Puede asignar roles a usuarios"),
+        ("aprobar_usuarios", "Puede aprobar usuarios pendientes"),
+    ]
+```
+
+These permissions can be assigned to roles to control which users can manage other users.
+
+## Profile Management
+
+Users can update their own profile information:
+
+```python administrador/views.py:394
+@login_required
+def edit_profile(request):
+    from .forms import CustomUserChangeForm
+
+    form = CustomUserChangeForm(request.POST or None, instance=request.user)
+
+    if request.method == 'POST':
+        if form.is_valid():
+            form.save()
+            rol_slug = request.user.rol_nombre.lower().replace(" ", "-")
+            nombre_url = f"{rol_slug}_dashboard"
+            messages.success(request, "Perfil actualizado correctamente.")
+            try:
+                return redirect(nombre_url)
+            except:
+                return redirect('home')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(
+                        request, f"Error en {form.fields[field].label}: {error}"
+                    )
+
+    return render(request, "registration/edit_profile.html", {"form": form})
+```
+
+## Dashboard Integration
+
+The administrator dashboard provides comprehensive user management views:
+
+```python administrador/views.py:88
+class AdminView(LoginRequiredMixin, TemplateView):
+    template_name = 'administrador/administrador_dashboard.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Statistics
+        context['total_usuarios'] = User.objects.count()
+        context['ultima_actividad'] = User.objects.order_by(
+            '-last_login').first().last_login if User.objects.exists() else None
+        context['roles'] = Rol.objects.all()
+
+        # User querysets by state
+        context['usuarios_todos'] = User.objects.all().order_by('-date_joined')
+        context['usuarios_pendientes'] = User.objects.filter(
+            estado='PENDIENTE').order_by('-date_joined')
+        context['usuarios_activos'] = User.objects.filter(
+            estado='ACTIVO').order_by('-date_joined')
+        context['usuarios_inactivos'] = User.objects.filter(
+            estado='INACTIVO').order_by('-date_joined')
+
+        return context
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Validate CI and Phone" icon="shield-check">
+    Use regex validators to ensure data quality for identity documents and phone numbers
+  </Card>
+  <Card title="Track User Origin" icon="fingerprint">
+    The `creado_por` field distinguishes between self-registered and admin-created users
+  </Card>
+  <Card title="Protect Superusers" icon="lock">
+    Prevent accidental deactivation of superuser accounts in state change logic
+  </Card>
+  <Card title="Notify on Changes" icon="bell">
+    Use `notificar_a_admins()` to keep administrators informed of user lifecycle events
+  </Card>
+</CardGroup>

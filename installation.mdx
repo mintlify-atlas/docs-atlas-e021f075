@@ -1,0 +1,544 @@
+---
+title: Installation
+description: Complete installation guide for Gestión de Tierras with detailed system requirements, database setup, and troubleshooting.
+---
+
+## System Requirements
+
+Before installing Gestión de Tierras, ensure your system meets these requirements:
+
+### Software Requirements
+
+- **Python**: 3.8 or higher (3.10+ recommended)
+- **PostgreSQL**: 12.x or higher (14.x+ recommended)
+- **Operating System**: Linux, macOS, or Windows
+- **Memory**: Minimum 2GB RAM (4GB+ recommended for production)
+- **Disk Space**: At least 1GB free space for application and database
+
+### Python Packages
+
+All required packages are defined in `requirements.txt`:
+
+```txt requirements.txt
+asgiref==3.8.1
+Django==5.0.4
+django-widget-tweaks==1.5.0
+Pillow==11.2.1
+psycopg2-binary==2.9.10
+python-dotenv==1.1.0
+sqlparse==0.5.3
+tzdata==2025.2
+django-crispy-forms==2.1
+django-bootstrap5==23.3
+```
+
+<Note>
+The system uses Django 5.0.4 which requires Python 3.8 or higher.
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Python">
+    Verify Python is installed and check the version:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    python3 --version
+    ```
+    
+    ```bash Windows
+    python --version
+    ```
+    </CodeGroup>
+    
+    If Python is not installed or version is below 3.8:
+    
+    <CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install python3 python3-pip python3-venv
+    ```
+    
+    ```bash macOS (Homebrew)
+    brew install python3
+    ```
+    
+    ```bash Windows
+    # Download from https://www.python.org/downloads/
+    # Ensure "Add Python to PATH" is checked during installation
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install PostgreSQL">
+    Install PostgreSQL database server:
+    
+    <CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+    sudo systemctl start postgresql
+    sudo systemctl enable postgresql
+    ```
+    
+    ```bash macOS (Homebrew)
+    brew install postgresql@14
+    brew services start postgresql@14
+    ```
+    
+    ```bash Windows
+    # Download installer from https://www.postgresql.org/download/windows/
+    # Run installer and follow the setup wizard
+    ```
+    </CodeGroup>
+    
+    Verify PostgreSQL is running:
+    
+    ```bash
+    psql --version
+    ```
+  </Step>
+
+  <Step title="Clone Repository">
+    Clone the Gestión de Tierras repository:
+    
+    ```bash
+    git clone <repository-url>
+    cd gestion_de_tierras
+    ```
+    
+    <Note>
+    Replace `<repository-url>` with your actual repository URL.
+    </Note>
+  </Step>
+
+  <Step title="Create Virtual Environment">
+    Create an isolated Python environment for the project:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+    
+    ```bash Windows (Command Prompt)
+    python -m venv venv
+    venv\Scripts\activate.bat
+    ```
+    
+    ```bash Windows (PowerShell)
+    python -m venv venv
+    venv\Scripts\Activate.ps1
+    ```
+    </CodeGroup>
+    
+    Your command prompt should now show `(venv)` prefix.
+    
+    <Warning>
+    Always activate the virtual environment before running any Python or Django commands.
+    </Warning>
+  </Step>
+
+  <Step title="Install Python Dependencies">
+    Install all required packages:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    pip3 install -r requirements.txt
+    ```
+    
+    ```bash Windows
+    pip install -r requirements.txt
+    ```
+    </CodeGroup>
+    
+    This installs:
+    - **Django 5.0.4**: Web framework
+    - **psycopg2-binary**: PostgreSQL adapter
+    - **django-widget-tweaks**: Form widget customization
+    - **Pillow**: Image processing (for land photos)
+    - **python-dotenv**: Environment variable management
+    - **django-crispy-forms & django-bootstrap5**: Form styling
+    
+    Verify installation:
+    
+    ```bash
+    python -c "import django; print(django.get_version())"
+    ```
+  </Step>
+
+  <Step title="Configure PostgreSQL Database">
+    Create the database and user:
+    
+    ```bash
+    # Access PostgreSQL as postgres user
+    sudo -u postgres psql
+    ```
+    
+    In the PostgreSQL shell:
+    
+    ```sql
+    -- Create database
+    CREATE DATABASE gestion_de_tierras_bd;
+    
+    -- Create user (if not using default postgres user)
+    CREATE USER gestion_user WITH PASSWORD 'secure_password';
+    
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE gestion_de_tierras_bd TO gestion_user;
+    
+    -- Exit PostgreSQL
+    \q
+    ```
+    
+    <Note>
+    The default `settings.py` uses database name `gestion_de_tierras_bd`, user `postgres`, and password `1603`. Change these for production.
+    </Note>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create a `.env` file in the project root for sensitive configuration:
+    
+    ```bash .env
+    # Django settings
+    SECRET_KEY=your-secret-key-here
+    DEBUG=True
+    ALLOWED_HOSTS=localhost,127.0.0.1
+    
+    # Database
+    DB_NAME=gestion_de_tierras_bd
+    DB_USER=postgres
+    DB_PASSWORD=your_secure_password
+    DB_HOST=localhost
+    DB_PORT=5432
+    
+    # CSRF trusted origins
+    CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
+    ```
+    
+    Update `gestion_de_tierras/settings.py` to use environment variables:
+    
+    ```python gestion_de_tierras/settings.py
+    import os
+    from pathlib import Path
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    
+    SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
+    DEBUG = os.getenv('DEBUG', 'False') == 'True'
+    
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'gestion_de_tierras_bd'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', '1603'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+        }
+    }
+    ```
+    
+    <Warning>
+    Never commit `.env` to version control. Add it to `.gitignore`.
+    </Warning>
+  </Step>
+
+  <Step title="Run Database Migrations">
+    Create all database tables by running migrations:
+    
+    ```bash
+    python manage.py migrate
+    ```
+    
+    Expected output shows migrations for all apps:
+    
+    ```
+    Operations to perform:
+      Apply all migrations: admin, administrador, analisis, auth, 
+      contenttypes, coordinacion, core, expedienteo, gerencia, 
+      relevamiento, sessions, sig, titulacion
+    Running migrations:
+      Applying contenttypes.0001_initial... OK
+      Applying contenttypes.0002_remove_content_type_name... OK
+      Applying auth.0001_initial... OK
+      ...
+    ```
+    
+    This creates tables for:
+    - Core models (Departamento, Distrito, Colonia, Solicitud, Relevamiento)
+    - User management (User, Rol)
+    - All specialized modules
+  </Step>
+
+  <Step title="Collect Static Files">
+    Gather static files (CSS, JavaScript, images) for serving:
+    
+    ```bash
+    python manage.py collectstatic --noinput
+    ```
+    
+    Files are collected from:
+    - `static/` directory (Bootstrap 5, custom CSS/JS)
+    - Django admin interface files
+    - Third-party packages (widget-tweaks, crispy-forms)
+    
+    Collected to: `staticfiles/` directory
+  </Step>
+
+  <Step title="Create Superuser Account">
+    Create an administrative user with full access:
+    
+    ```bash
+    python manage.py createsuperuser
+    ```
+    
+    Prompts:
+    ```
+    Username: admin
+    Email address: admin@example.com
+    Password: ********
+    Password (again): ********
+    ```
+    
+    <Note>
+    Development settings require only 4+ character passwords. Production should enforce stronger password policies.
+    </Note>
+    
+    The superuser has:
+    - Full admin panel access
+    - Automatic `administrador` role
+    - All permissions granted
+  </Step>
+
+  <Step title="Verify Installation">
+    Start the development server:
+    
+    ```bash
+    python manage.py runserver
+    ```
+    
+    Expected output:
+    ```
+    Watching for file changes with StatReloader
+    Performing system checks...
+    
+    System check identified no issues (0 silenced).
+    March 06, 2026 - 10:00:00
+    Django version 5.0.4, using settings 'gestion_de_tierras.settings'
+    Starting development server at http://127.0.0.1:8000/
+    Quit the server with CONTROL-C.
+    ```
+    
+    Access the application:
+    - Main app: `http://127.0.0.1:8000/`
+    - Admin panel: `http://127.0.0.1:8000/admin/`
+  </Step>
+</Steps>
+
+## Initial Configuration
+
+### Setting Up Roles
+
+After installation, configure user roles in the admin panel:
+
+1. Navigate to `http://127.0.0.1:8000/admin/administrador/rol/`
+2. Create roles with appropriate permissions:
+   - **Coordinador**: Manage survey requests
+   - **Relevador**: Conduct field surveys
+   - **Analista**: Analyze survey data
+   - **Gerente**: Management oversight
+
+### Setting Up Geographic Hierarchy
+
+Establish the geographic structure:
+
+1. **Departamentos**: Add top-level departments
+   - Auto-assigned unique codes
+   - Example: "Central", "Alto Paraná"
+
+2. **Distritos**: Add districts within departments
+   - Must belong to a department
+   - Example: "Asunción" (Central), "Ciudad del Este" (Alto Paraná)
+
+3. **Colonias**: Register land colonies
+   - Can span multiple districts
+   - Status: activo/inactivo
+   - Optional: finca_matriz, padron_matriz
+
+### Configuring Areas and Objectives
+
+Set up organizational structure:
+
+1. **Areas**: Create functional areas
+   - Auto-assigned codes
+   - Example: "Relevamiento", "Titulación"
+
+2. **Objetivos**: Define objectives per area
+   - Linked to specific areas
+   - Unique codes within each area
+
+## Troubleshooting
+
+### Database Connection Issues
+
+**Problem**: `django.db.utils.OperationalError: could not connect to server`
+
+**Solutions**:
+```bash
+# Check PostgreSQL is running
+sudo systemctl status postgresql
+
+# Start PostgreSQL if stopped
+sudo systemctl start postgresql
+
+# Verify connection
+psql -U postgres -h localhost -d gestion_de_tierras_bd
+```
+
+### Migration Errors
+
+**Problem**: `django.db.migrations.exceptions.InconsistentMigrationHistory`
+
+**Solutions**:
+```bash
+# Show migration status
+python manage.py showmigrations
+
+# Fake specific migration if needed
+python manage.py migrate --fake app_name migration_name
+
+# Reset database (DEVELOPMENT ONLY)
+python manage.py flush
+python manage.py migrate
+```
+
+### Import Errors
+
+**Problem**: `ModuleNotFoundError: No module named 'django'`
+
+**Solutions**:
+```bash
+# Ensure virtual environment is activated
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate     # Windows
+
+# Reinstall dependencies
+pip install -r requirements.txt
+
+# Verify Django installation
+python -c "import django; print(django.__version__)"
+```
+
+### Static Files Not Loading
+
+**Problem**: CSS/JavaScript not appearing in browser
+
+**Solutions**:
+```bash
+# Collect static files
+python manage.py collectstatic --clear --noinput
+
+# Verify STATIC_ROOT in settings.py
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Check DEBUG mode (static files auto-served when DEBUG=True)
+DEBUG = True
+```
+
+### Permission Denied Errors
+
+**Problem**: `PermissionError: [Errno 13] Permission denied`
+
+**Solutions**:
+```bash
+# Fix directory permissions (Linux/macOS)
+chmod -R 755 /path/to/gestion_de_tierras
+
+# Fix media directory
+mkdir -p media
+chmod 755 media
+
+# PostgreSQL socket permissions (Linux)
+sudo chmod 777 /var/run/postgresql
+```
+
+### Custom User Model Issues
+
+**Problem**: Errors related to `administrador.User`
+
+**Note**: The system uses a custom user model (`AUTH_USER_MODEL = 'administrador.User'`). Ensure:
+
+```python gestion_de_tierras/settings.py
+# This must be set before first migration
+AUTH_USER_MODEL = 'administrador.User'
+
+# Installed apps must include
+INSTALLED_APPS = [
+    ...
+    'administrador.apps.AdministradorConfig',
+    ...
+]
+```
+
+## Production Deployment
+
+<Warning>
+Before deploying to production, update the following settings:
+</Warning>
+
+```python gestion_de_tierras/settings.py
+# Security settings
+DEBUG = False
+ALLOWED_HOSTS = ['yourdomain.com', 'www.yourdomain.com']
+
+# Generate new secret key
+SECRET_KEY = 'generate-new-secret-key'
+
+# Database with environment variables
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+    }
+}
+
+# Security headers
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_BROWSER_XSS_FILTER = True
+```
+
+Consider using:
+- **Gunicorn** or **uWSGI** as WSGI server
+- **Nginx** or **Apache** as reverse proxy
+- **PostgreSQL** with proper backup strategy
+- **Redis** for caching and sessions
+- **Celery** for background tasks
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="cog" href="/configuration/settings">
+    Learn about environment variables and advanced settings
+  </Card>
+  
+  <Card title="User Management" icon="users" href="/features/user-management">
+    Set up roles, permissions, and user workflows
+  </Card>
+  
+  <Card title="Geographic Data" icon="map" href="/features/geographic-data">
+    Understand departments, districts, and colonies
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/models/user">
+    Explore models, views, and API endpoints
+  </Card>
+</CardGroup>

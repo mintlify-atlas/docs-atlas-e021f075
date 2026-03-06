@@ -1,0 +1,393 @@
+---
+title: 'Relevamiento'
+description: 'Survey record model with flexible JSON data storage and validation'
+icon: 'clipboard-list'
+---
+
+## Overview
+
+The `Relevamiento` model stores survey records for colonies with flexible JSON data storage. It enforces that surveys can only be created for requests in "En proceso" state and prevents duplicate surveys on the same day.
+
+## Fields
+
+<ParamField path="id" type="AutoField" required>
+  Primary key automatically generated
+</ParamField>
+
+<ParamField path="colonia" type="ForeignKey" required>
+  Colony being surveyed
+  - **Related to**: `Colonia` model
+  - **On delete**: CASCADE (deletes relevamiento if colony is deleted)
+  - **Related name**: `relevamientos`
+</ParamField>
+
+<ParamField path="solicitud" type="ForeignKey">
+  Associated survey request
+  - **Related to**: `Solicitud` model
+  - **On delete**: SET_NULL
+  - **Nullable**: Yes
+  - **Related name**: `relevamientos`
+  - **Validation**: Must be in "en_proceso" state if specified
+</ParamField>
+
+<ParamField path="fecha" type="DateTime" required>
+  Date and time when the survey was conducted
+  - **Default**: Current time (timezone.now)
+  - **Note**: Used in unique_together constraint
+</ParamField>
+
+<ParamField path="datos" type="JSONField">
+  Flexible JSON field for survey data
+  - **Default**: Empty dictionary ({})
+  - **Blank**: Yes
+  - **Purpose**: Stores all collected survey information in flexible format
+</ParamField>
+
+<ParamField path="realizado_por" type="ForeignKey">
+  User who conducted the survey
+  - **Related to**: User model (AUTH_USER_MODEL)
+  - **On delete**: SET_NULL
+  - **Nullable**: Yes
+</ParamField>
+
+## Constraints
+
+### unique_together
+
+```python
+class Meta:
+    unique_together = ("colonia", "fecha")
+```
+
+A colony can only have one survey record per specific date and time. This prevents accidental duplicates.
+
+<Warning>
+The uniqueness is enforced at the database level using both colonia and fecha fields together.
+</Warning>
+
+## Methods
+
+### `clean()`
+
+Validates the survey record before saving.
+
+```python
+def clean(self):
+    if self.solicitud and self.solicitud.estado != Solicitud.ESTADO_EN_PROCESO:
+        raise ValidationError(
+            "La solicitud asociada debe estar en estado 'En proceso de relevamiento'.")
+    
+    # evitar duplicados básicos: si ya existe un relevamiento reciente para la misma colonia
+    recent = Relevamiento.objects.filter(colonia=self.colonia)
+    if self.pk:
+        recent = recent.exclude(pk=self.pk)
+    
+    # criterio de duplicado: mismo día
+    today = timezone.now().date()
+    if recent.filter(fecha__date=today).exists():
+        raise ValidationError(
+            "Ya existe un relevamiento para esta colonia en la fecha de hoy.")
+```
+
+**Validation Rules**:
+1. If `solicitud` is specified, it must be in "en_proceso" state
+2. Only one survey per colony per day is allowed
+3. Prevents duplicate surveys for the same colony on the same date
+
+### `__str__()`
+
+String representation is inherited from Django's default implementation.
+
+## Relationships
+
+### Foreign Keys
+- **colonia**: Links to the `Colonia` being surveyed
+- **solicitud**: Optional link to the originating `Solicitud`
+- **realizado_por**: Links to the `User` who conducted the survey
+
+## Meta Options
+
+```python
+class Meta:
+    verbose_name = "Relevamiento"
+    verbose_name_plural = "Relevamientos"
+    ordering = ["-fecha"]
+    unique_together = ("colonia", "fecha")
+```
+
+### Ordering
+Surveys are ordered by date in descending order (newest first).
+
+## Complete Model Definition
+
+```python
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from django.conf import settings
+
+class Relevamiento(models.Model):
+    colonia = models.ForeignKey(
+        Colonia, 
+        on_delete=models.CASCADE, 
+        related_name="relevamientos"
+    )
+    solicitud = models.ForeignKey(
+        Solicitud, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="relevamientos"
+    )
+    fecha = models.DateTimeField(default=timezone.now)
+    # flexible para los campos relevados
+    datos = models.JSONField(blank=True, default=dict)
+    realizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True
+    )
+
+    class Meta:
+        verbose_name = "Relevamiento"
+        verbose_name_plural = "Relevamientos"
+        ordering = ["-fecha"]
+        unique_together = ("colonia", "fecha")
+
+    def clean(self):
+        if self.solicitud and self.solicitud.estado != Solicitud.ESTADO_EN_PROCESO:
+            raise ValidationError(
+                "La solicitud asociada debe estar en estado 'En proceso de relevamiento'.")
+        
+        recent = Relevamiento.objects.filter(colonia=self.colonia)
+        if self.pk:
+            recent = recent.exclude(pk=self.pk)
+        
+        today = timezone.now().date()
+        if recent.filter(fecha__date=today).exists():
+            raise ValidationError(
+                "Ya existe un relevamiento para esta colonia en la fecha de hoy.")
+```
+
+## Usage Example
+
+```python
+from core.models import Relevamiento, Colonia, Solicitud
+from administrador.models import User
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+
+# Get related objects
+colonia = Colonia.objects.get(nombre='Colonia Ejemplo')
+solicitud = Solicitud.objects.get(colonia=colonia, estado=Solicitud.ESTADO_EN_PROCESO)
+user = User.objects.get(username='relevador')
+
+# Create survey with flexible data
+relevamiento = Relevamiento.objects.create(
+    colonia=colonia,
+    solicitud=solicitud,
+    realizado_por=user,
+    datos={
+        'superficie_total': 1500,
+        'numero_lotes': 45,
+        'familias_residentes': 42,
+        'infraestructura': {
+            'agua_potable': True,
+            'energia_electrica': True,
+            'calles_pavimentadas': False
+        },
+        'observaciones': 'Relevamiento completo sin inconvenientes',
+        'imagenes': [
+            '/media/surveys/img1.jpg',
+            '/media/surveys/img2.jpg'
+        ]
+    }
+)
+
+# Validate before saving
+try:
+    relevamiento.clean()
+    print("Survey is valid")
+except ValidationError as e:
+    print(f"Validation error: {e}")
+
+# Access JSON data
+print(f"Total area: {relevamiento.datos['superficie_total']} hectares")
+print(f"Water: {'Yes' if relevamiento.datos['infraestructura']['agua_potable'] else 'No'}")
+```
+
+## JSON Data Structure Examples
+
+### Basic Survey Data
+```python
+datos = {
+    'fecha_relevamiento': '2024-03-15',
+    'superficie_total': 1200,
+    'numero_lotes': 38,
+    'lotes_ocupados': 35,
+    'familias_residentes': 33
+}
+```
+
+### Comprehensive Survey Data
+```python
+datos = {
+    'informacion_basica': {
+        'superficie_total_hectareas': 1500,
+        'perimetro_metros': 4200,
+        'numero_total_lotes': 45
+    },
+    'poblacion': {
+        'familias_residentes': 42,
+        'poblacion_estimada': 168,
+        'lotes_ocupados': 43,
+        'lotes_vacios': 2
+    },
+    'infraestructura': {
+        'servicios_basicos': {
+            'agua_potable': True,
+            'energia_electrica': True,
+            'alcantarillado': False,
+            'recoleccion_basura': True
+        },
+        'vias_acceso': {
+            'calles_pavimentadas_km': 2.5,
+            'calles_tierra_km': 3.8,
+            'estado_general': 'regular'
+        },
+        'espacios_comunes': {
+            'escuela': True,
+            'centro_salud': False,
+            'salon_comunitario': True,
+            'area_deportiva': True
+        }
+    },
+    'aspectos_legales': {
+        'familias_con_titulo': 15,
+        'familias_sin_titulo': 27,
+        'tramites_en_curso': 18
+    },
+    'observaciones': 'Colonia consolidada con buena organización comunitaria',
+    'relevador': 'Juan Pérez',
+    'coordenadas_gps': {
+        'latitud': -25.2637,
+        'longitud': -57.5759
+    },
+    'imagenes': [
+        {'url': '/media/surveys/col1_vista_general.jpg', 'descripcion': 'Vista general'},
+        {'url': '/media/surveys/col1_escuela.jpg', 'descripcion': 'Escuela local'}
+    ]
+}
+```
+
+## Validation Examples
+
+### Valid Survey Creation
+```python
+# Solicitud must be in 'en_proceso' state
+solicitud = Solicitud.objects.get(pk=1)
+solicitud.estado = Solicitud.ESTADO_EN_PROCESO
+solicitud.save()
+
+relevamiento = Relevamiento(
+    colonia=solicitud.colonia,
+    solicitud=solicitud,
+    realizado_por=user,
+    datos={'superficie': 1000}
+)
+
+relevamiento.clean()  # Passes validation
+relevamiento.save()
+```
+
+### Invalid: Wrong Solicitud State
+```python
+# This will FAIL - solicitud not in 'en_proceso' state
+from django.core.exceptions import ValidationError
+
+solicitud = Solicitud.objects.get(pk=1)
+solicitud.estado = Solicitud.ESTADO_ACTIVO  # Wrong state
+solicitud.save()
+
+try:
+    relevamiento = Relevamiento(
+        colonia=solicitud.colonia,
+        solicitud=solicitud,
+        realizado_por=user
+    )
+    relevamiento.clean()
+except ValidationError as e:
+    print(e)  # "La solicitud asociada debe estar en estado 'En proceso de relevamiento'."
+```
+
+### Invalid: Duplicate on Same Day
+```python
+# This will FAIL - duplicate survey on same day
+from django.utils import timezone
+
+# Create first survey
+relevamiento1 = Relevamiento.objects.create(
+    colonia=colonia,
+    fecha=timezone.now(),
+    datos={'test': 1}
+)
+
+# Try to create second survey same day
+try:
+    relevamiento2 = Relevamiento(
+        colonia=colonia,
+        fecha=timezone.now(),
+        datos={'test': 2}
+    )
+    relevamiento2.clean()
+except ValidationError as e:
+    print(e)  # "Ya existe un relevamiento para esta colonia en la fecha de hoy."
+```
+
+## Query Examples
+
+### Get recent surveys for a colony
+```python
+from datetime import timedelta
+from django.utils import timezone
+
+last_30_days = timezone.now() - timedelta(days=30)
+relevamientos = Relevamiento.objects.filter(
+    colonia=colonia,
+    fecha__gte=last_30_days
+).order_by('-fecha')
+```
+
+### Get surveys by user
+```python
+relevamientos_usuario = Relevamiento.objects.filter(
+    realizado_por=user
+).select_related('colonia', 'solicitud')
+```
+
+### Complex query: Surveys with specific data criteria
+```python
+# Find surveys where agua_potable is True
+relevamientos_con_agua = Relevamiento.objects.filter(
+    datos__infraestructura__agua_potable=True
+)
+
+# Find surveys with large colonies (>1000 hectares)
+grandes_colonias = Relevamiento.objects.filter(
+    datos__superficie_total__gt=1000
+)
+```
+
+### Aggregate survey data
+```python
+from django.db.models import Count
+
+# Count surveys per colony
+stats = Relevamiento.objects.values('colonia__nombre').annotate(
+    total_relevamientos=Count('id')
+).order_by('-total_relevamientos')
+
+for stat in stats:
+    print(f"{stat['colonia__nombre']}: {stat['total_relevamientos']} surveys")
+```

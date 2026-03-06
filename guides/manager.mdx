@@ -1,0 +1,439 @@
+---
+title: Manager Guide (Gerente)
+description: Guide for managers to manage geographic entities, departments, districts, and colonies in Gestión de Tierras
+---
+
+## Overview
+
+The Manager Dashboard (Panel de Gerencia) provides tools for managing the geographic and administrative structure of the land management system. Managers are responsible for maintaining departments, districts, and colonies.
+
+<Note>
+  This guide is for users with the "Gerente" role. If you don't have access to these features, contact your administrator.
+</Note>
+
+## Manager Dashboard
+
+The gerente_dashboard displays three main management areas:
+
+### Geographic Entity Cards
+
+1. **Departments (Departamentos)**
+   - Icon: Map marker
+   - Shows total count of registered departments
+   - Link to department list view
+
+2. **Districts (Distritos)**
+   - Icon: Map
+   - Quick access to district management
+   - Link to district list view
+
+3. **Colonies (Colonias)**
+   - Icon: Tractor
+   - Manage territorial colonies
+   - Link to colony list view with filters
+
+<Tip>
+  Each card shows the current count of entities. Use this to monitor the system's geographic structure at a glance.
+</Tip>
+
+## Managing Departments
+
+### Understanding Departments
+
+Departments (Departamentos) are the highest level in the geographic hierarchy:
+- Each department has a unique name and auto-generated code
+- Departments contain multiple districts
+- Cannot be deleted if districts exist within them
+
+### Creating a Department
+
+<Steps>
+  <Step title="Navigate to Departments">
+    From the Manager Dashboard, click **Ver lista** on the Departments card to access `/gerencia/departamentos/`.
+  </Step>
+  
+  <Step title="Open Creation Modal">
+    Click the **Create Department** button to open the creation form.
+  </Step>
+  
+  <Step title="Enter Department Name">
+    Fill in:
+    - **Name (nombre)**: Unique department name (e.g., "Central", "Alto Paraná")
+    - **Code (codigo)**: Leave empty for automatic assignment, or enter a specific number
+  </Step>
+  
+  <Step title="Save Department">
+    Click **Create**. The system will:
+    - Validate name uniqueness
+    - Auto-assign the next available code if not provided
+    - Add the department to the database
+  </Step>
+</Steps>
+
+### Editing Departments
+
+To modify an existing department:
+
+1. Find the department in the list
+2. Click the **Edit** button
+3. Update the name (code cannot be changed)
+4. Save changes
+
+### Creating Districts from Departments
+
+You can create a district directly from the department view:
+
+1. Open the department details or modal
+2. Click **Create District from Department**
+3. The departamento field will be pre-filled
+4. Enter district details and save
+
+<Note>
+  Departments are protected from deletion if they contain districts. You must delete or reassign all districts first.
+</Note>
+
+## Managing Districts
+
+### Understanding Districts
+
+Districts (Distritos) are the middle level of the geographic hierarchy:
+- Each district belongs to exactly one department
+- Districts can be associated with multiple colonies
+- Name and code must be unique within their department
+
+### Creating a District
+
+<Steps>
+  <Step title="Access District List">
+    From the Manager Dashboard, click **Ver lista** on the Districts card.
+  </Step>
+  
+  <Step title="Open Creation Form">
+    Click **Create District** button.
+  </Step>
+  
+  <Step title="Fill District Details">
+    Enter:
+    - **Name (nombre)**: District name (e.g., "Asunción", "Ciudad del Este")
+    - **Department (departamento)**: Select from dropdown
+    - **Code (codigo)**: Optional - auto-generated if left empty
+  </Step>
+  
+  <Step title="Save District">
+    Click **Create**. The system validates:
+    - Name is unique within the selected department
+    - Code is unique within the department
+    - Department exists and is valid
+  </Step>
+</Steps>
+
+### Editing Districts
+
+To modify a district:
+
+1. Go to the Districts list
+2. Click **Edit** for the desired district
+3. Update name or reassign to different department
+4. Save changes
+
+<Warning>
+  Changing a district's department will affect all colonies associated with that district. Ensure colonies remain geographically accurate.
+</Warning>
+
+### Creating Colonies from Districts
+
+You can create colonies directly from the district view:
+
+1. Open the district modal or details page
+2. Click **Create Colony from District**
+3. The distrito relationship will be pre-filled
+4. Complete colony information and save
+
+## Managing Colonies
+
+### Understanding Colonies
+
+Colonies (Colonias) are the lowest level and represent specific territorial areas:
+- Each colony can be associated with multiple districts (many-to-many relationship)
+- Colonies have estados: "activo" or "inactivo"
+- Contains finca_matriz and padron_matriz for land registry
+- Auto-generated unique codes
+
+### Viewing Colony List
+
+The colony list includes powerful filtering options:
+
+**Available Filters:**
+- **Search by name (q)**: Type colony name to filter results
+- **Filter by estado**: Show only active or inactive colonies
+- **Filter by district**: Show colonies in a specific district
+
+<Tip>
+  Use multiple filters together for precise results. For example, search for "San" AND filter by "Central" department to find all colonies with "San" in their name within Central.
+</Tip>
+
+### Creating a Colony
+
+<Steps>
+  <Step title="Navigate to Colonies">
+    From the Manager Dashboard, click **Ver lista** on the Colonies card.
+  </Step>
+  
+  <Step title="Open Creation Modal">
+    Click **Create Colony** button.
+  </Step>
+  
+  <Step title="Enter Colony Information">
+    Fill in all required fields:
+    - **Name (nombre)**: Unique colony name
+    - **Finca Matriz**: Property registry number (optional)
+    - **Padrón Matriz**: Land parcel number (optional)
+    - **Estado**: Select "activo" (active) or "inactivo" (inactive)
+    - **Code (codigo)**: Leave empty for auto-assignment
+  </Step>
+  
+  <Step title="Associate with Districts">
+    **Important:** Select at least one district from the multiple-select field.
+    
+    The colony must be associated with one or more districts. This relationship defines where the colony is geographically located.
+  </Step>
+  
+  <Step title="Save Colony">
+    Click **Create**. The system will:
+    - Validate name uniqueness
+    - Ensure at least one district is selected
+    - Auto-assign the next available code
+    - Create many-to-many relationships with selected districts
+  </Step>
+</Steps>
+
+<Warning>
+  A colony MUST be associated with at least one district. The clean() method will raise a validation error if you try to save a colony without districts.
+</Warning>
+
+### Editing Colonies
+
+To modify an existing colony:
+
+<Steps>
+  <Step title="Find the Colony">
+    Use the filters to locate the specific colony in the list.
+  </Step>
+  
+  <Step title="Open Edit Modal">
+    Click the **Edit** button for that colony.
+  </Step>
+  
+  <Step title="Update Information">
+    Modify any fields:
+    - Name
+    - Finca matriz / Padrón matriz
+    - Estado (activate or deactivate)
+    - Associated districts (add or remove)
+  </Step>
+  
+  <Step title="Save Changes">
+    Click **Update**. Changes are immediate.
+  </Step>
+</Steps>
+
+### Deactivating vs Deleting Colonies
+
+**Best Practice:** Use estado = "inactivo" instead of deleting:
+
+**Reasons:**
+- Preserves historical data and audit trails
+- Maintains references in solicitudes and relevamientos
+- Can be reactivated if needed
+- Deletion may fail if survey requests (solicitudes) exist
+
+**To Deactivate:**
+1. Edit the colony
+2. Change estado from "activo" to "inactivo"
+3. Save changes
+
+**To Delete (if necessary):**
+1. Ensure no survey requests reference this colony
+2. Click the **Delete** button
+3. Confirm deletion
+
+## Survey Request Management
+
+As a manager, you monitor survey requests (solicitudes de relevamiento) for colonies:
+
+### Survey Request States
+
+- **Pending (pendiente)**: Newly created, awaiting approval
+- **Active (activo)**: Approved and ready for survey
+- **In Process (en_proceso)**: Survey team is currently working
+- **Inactive (inactivo)**: Completed or cancelled
+
+### Reviewing Survey Requests
+
+From the manager dashboard or navigation:
+
+1. Access the survey requests list
+2. View details:
+   - Associated colony
+   - Request type (nuevo/actualizacion)
+   - Current estado
+   - Created by user
+   - Creation and update dates
+3. Review observaciones (notes) for context
+
+<Note>
+  Survey workflows and approvals may be handled by coordinators. Managers typically monitor progress and ensure data integrity.
+</Note>
+
+## Data Integrity Monitoring
+
+### Common Data Issues to Watch For
+
+1. **Orphaned Colonies**: Colonies without district associations
+2. **Duplicate Names**: Similar colony names that may be duplicates
+3. **Missing Registry Data**: Colonies without finca_matriz or padron_matriz
+4. **Inactive Districts**: Districts with active colonies but marked inactive
+
+### Running Data Quality Checks
+
+<Steps>
+  <Step title="Check District Associations">
+    Review the colony list and look for colonies with only one district. Some may need additional associations.
+  </Step>
+  
+  <Step title="Validate Geographic Hierarchy">
+    Ensure districts belong to correct departments and colonies are in appropriate districts.
+  </Step>
+  
+  <Step title="Review Estado Consistency">
+    If a department or district is inactive, consider whether colonies within should also be inactive.
+  </Step>
+  
+  <Step title="Export and Audit">
+    Use export features (CSV/Excel) to perform detailed audits in spreadsheet software.
+  </Step>
+</Steps>
+
+## Common Management Tasks
+
+### Task 1: Setting Up a New Department
+
+<Steps>
+  <Step title="Create Department">
+    Add the new department with appropriate name.
+  </Step>
+  
+  <Step title="Add Districts">
+    Create all districts within that department.
+  </Step>
+  
+  <Step title="Add Colonies">
+    Create colonies and associate them with the appropriate districts.
+  </Step>
+  
+  <Step title="Verify Hierarchy">
+    Check the complete structure from department → districts → colonies.
+  </Step>
+</Steps>
+
+### Task 2: Reorganizing Geographic Boundaries
+
+<Steps>
+  <Step title="Identify Affected Colonies">
+    List all colonies that need reassignment.
+  </Step>
+  
+  <Step title="Edit Colony Associations">
+    For each colony, edit the districts field to add new districts or remove old ones.
+  </Step>
+  
+  <Step title="Update District Assignments">
+    If districts need to move to different departments, edit each district's departamento field.
+  </Step>
+  
+  <Step title="Verify Changes">
+    Review the updated structure to ensure accuracy.
+  </Step>
+</Steps>
+
+### Task 3: Preparing for Survey Campaigns
+
+<Steps>
+  <Step title="Identify Target Colonies">
+    Use filters to find colonies in specific districts that need surveys.
+  </Step>
+  
+  <Step title="Verify Colony Data">
+    Check that all target colonies have:
+    - Correct distrito associations
+    - Estado = "activo"
+    - Accurate finca_matriz and padron_matriz
+  </Step>
+  
+  <Step title="Coordinate with Survey Teams">
+    Provide the list to coordinators who will create solicitudes.
+  </Step>
+  
+  <Step title="Monitor Progress">
+    Track survey request estados as teams work.
+  </Step>
+</Steps>
+
+## Export and Reporting
+
+All entity lists (departments, districts, colonies) include export functionality:
+
+- **CSV Export**: For data analysis and imports
+- **Excel Export**: For formatted spreadsheets
+- **Print**: For physical documentation
+
+Use these to:
+- Generate reports for management
+- Backup geographic data
+- Share information with other departments
+- Perform offline analysis
+
+## Troubleshooting
+
+### Cannot Delete Department
+
+**Reason:** Department contains districts.
+
+**Solution:**
+1. Delete or reassign all districts to different departments
+2. Then delete the empty department
+
+### Cannot Create Colony
+
+**Error:** "La colonia debe estar asociada a al menos un distrito."
+
+**Solution:** You must select at least one district in the districts field. Colonies cannot exist without district association.
+
+### Colony Not Appearing in List
+
+**Check:**
+- Colony estado is "activo" (if filtering by active only)
+- Colony's districts match your district filter
+- Search term matches the colony name
+
+**Solution:** Clear all filters or adjust filter criteria.
+
+### District Code Conflicts
+
+**Error:** Duplicate district code within department.
+
+**Solution:** Let the system auto-generate the code, or manually choose a unique number within that department.
+
+## Best Practices
+
+1. **Consistent Naming**: Use consistent naming conventions (e.g., always capitalize, use standard abbreviations)
+2. **Regular Audits**: Periodically review geographic data for accuracy
+3. **Estado Management**: Keep estado fields up to date; deactivate obsolete entities
+4. **Document Changes**: Use observaciones fields when making significant changes
+5. **Coordinate with Teams**: Communicate geographic changes to survey and analysis teams
+
+## Related Workflows
+
+For complete end-to-end workflows involving geographic entities, see:
+- [Complete Workflows Guide](/guides/workflows) - Geographic setup and survey request workflows
+- [Administrator Guide](/guides/administrator) - User and role management

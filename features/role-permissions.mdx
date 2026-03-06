@@ -1,0 +1,387 @@
+---
+title: Roles & Permissions
+description: Flexible role-based access control using Django's permission system
+---
+
+## Overview
+
+The role and permissions system provides granular access control through a custom `Rol` model that wraps Django's built-in Permission framework. Roles can be assigned multiple permissions and are visually distinguished by color codes.
+
+## Rol Model
+
+The `Rol` model is defined in `administrador/models.py` as an independent entity:
+
+```python administrador/models.py:6
+class Rol(models.Model):
+    """
+    Modelo independiente para roles con permisos personalizables.
+    """
+    nombre = models.CharField(
+        max_length=50, 
+        unique=True, 
+        verbose_name='Nombre del Rol'
+    )
+    descripcion = models.TextField(blank=True)
+    permisos = models.ManyToManyField(
+        Permission,
+        blank=True,
+        verbose_name='Permisos asociados',
+        help_text='Selecciona permisos específicos para este rol'
+    )
+    color = models.CharField(
+        max_length=20,
+        default='secondary', 
+        help_text='Color para representar el rol (ej: primary, danger)'
+    )
+
+    class Meta:
+        verbose_name = 'Rol'
+        verbose_name_plural = 'Roles'
+        ordering = ['nombre']
+
+    def __str__(self):
+        return self.nombre
+```
+
+<Info>
+The `Rol` model uses a ManyToMany relationship with Django's `Permission` model, allowing flexible assignment of any permission to any role.
+</Info>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Unique Role Names" icon="tag">
+    Each role has a unique name to prevent confusion in assignments
+  </Card>
+  <Card title="Multiple Permissions" icon="key">
+    Roles can have any combination of permissions from any app
+  </Card>
+  <Card title="Color Coding" icon="palette">
+    Visual distinction in UI using Bootstrap color classes (primary, danger, success, etc.)
+  </Card>
+  <Card title="Optional Descriptions" icon="file-text">
+    Document role purpose and responsibilities
+  </Card>
+</CardGroup>
+
+## Permission System
+
+### Django Permissions
+
+The system leverages Django's built-in permission framework. Each model automatically gets four permissions:
+
+- `add_<model>`: Can create new instances
+- `change_<model>`: Can edit existing instances
+- `delete_<model>`: Can delete instances
+- `view_<model>`: Can view instances
+
+### Custom Permissions
+
+The User model defines additional permissions for administrative tasks:
+
+```python administrador/models.py:89
+class Meta:
+    permissions = [
+        ("asignar_roles", "Puede asignar roles a usuarios"),
+        ("aprobar_usuarios", "Puede aprobar usuarios pendientes"),
+    ]
+```
+
+These custom permissions can be assigned to any role to control access to specific administrative functions.
+
+## Role Creation Workflow
+
+Administrators create roles through the dashboard:
+
+```python administrador/views.py:213
+class RolCreateView(LoginRequiredMixin, CreateView):
+    model = Rol
+    fields = ['nombre', 'descripcion', 'color', 'permisos']
+    template_name = 'includes/administrador/modal/roles/crear_rol_modal.html'
+
+    def get_success_url(self):
+        return self.request.META.get('HTTP_REFERER', str(reverse_lazy('listar_roles')))
+
+    def form_valid(self, form):
+        # Save role without permissions first
+        rol = form.save(commit=False)
+        rol.save()
+
+        # Capture selected permissions from form
+        permisos_ids = self.request.POST.getlist('permisos')
+        if permisos_ids:
+            rol.permisos.set(permisos_ids)
+
+        messages.success(
+            self.request, f'Rol "{rol.nombre}" creado exitosamente!'
+        )
+
+        # Notify administrators
+        notificar_a_admins(
+            mensaje=f'Se ha creado un nuevo rol: "{rol.nombre}".',
+            tipo="INFO",
+            exclude_user=self.request.user,
+            link=reverse("listar_roles")
+        )
+
+        return super().form_valid(form)
+```
+
+<Steps>
+  <Step title="Admin opens role creation modal">
+    From the roles management page or user dashboard
+  </Step>
+  <Step title="Fill role details">
+    Provide name, description, color, and select permissions
+  </Step>
+  <Step title="Role is saved">
+    Permissions are assigned via ManyToMany relationship
+  </Step>
+  <Step title="Admins are notified">
+    All administrators receive notification of new role
+  </Step>
+</Steps>
+
+## Role Assignment
+
+Roles are assigned to users through the user management interface:
+
+```python administrador/views.py:324
+@require_POST
+@login_required
+def asignar_rol_usuario(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+        user_id = data.get("user_id")
+        rol_id = data.get("rol_id")
+
+        usuario = get_object_or_404(User, id=user_id)
+        rol = get_object_or_404(Rol, id=rol_id)
+
+        usuario.rol = rol
+        usuario.estado = "ACTIVO"  # Activate user when assigning role
+        usuario.save()
+        
+        notificar_a_admins(
+            mensaje=f'El usuario {usuario.username} fue asignado al rol "{rol.nombre}".',
+            tipo="INFO",
+            exclude_user=request.user
+        )
+
+        return JsonResponse({
+            "success": True, 
+            "message": f"Rol '{rol.nombre}' asignado a {usuario.username}"
+        })
+    except Exception as e:
+        return JsonResponse({"success": False, "message": f"Error: {str(e)}"})
+```
+
+<Note>
+Assigning a role to a user automatically changes their state to `ACTIVO`, enabling immediate access to the system.
+</Note>
+
+## Role Editing
+
+Existing roles can be updated:
+
+```python administrador/views.py:255
+def editar_rol(request, rol_id):
+    rol = get_object_or_404(Rol, id=rol_id)
+    if request.method == 'POST':
+        rol.nombre = request.POST.get('nombre')
+        rol.descripcion = request.POST.get('descripcion')
+        permisos_ids = request.POST.getlist('permisos')
+        rol.permisos.set(permisos_ids)
+        rol.save()
+        messages.success(request, "Rol actualizado correctamente.")
+        notificar_a_admins(
+            mensaje=f'El rol "{rol.nombre}" fue editado.',
+            tipo="WARNING",
+            exclude_user=request.user
+        )
+        return redirect('listar_roles')
+    return redirect('listar_roles')
+```
+
+## Role Deletion Protection
+
+Roles cannot be deleted if they are assigned to users:
+
+```python administrador/views.py:273
+def eliminar_rol(request, rol_id):
+    rol = get_object_or_404(Rol, id=rol_id)
+    if rol.user_set.exists():
+        messages.error(
+            request, 
+            "Este rol está asignado a uno o más usuarios y no puede ser eliminado."
+        )
+    else:
+        rol.delete()
+        messages.success(request, "Rol eliminado correctamente.")
+    return redirect('listar_roles')
+```
+
+<Warning>
+Attempting to delete a role that is assigned to users will fail with an error message. Users must be reassigned before the role can be deleted.
+</Warning>
+
+## Dashboard Access Control
+
+The login system uses roles to determine which dashboard users see:
+
+```python administrador/views.py:41
+def get_success_url(self):
+    user = self.request.user
+
+    # Normalize role name to URL slug
+    rol_slug = user.rol_nombre.lower().replace(" ", "-")
+    nombre_url = f"{rol_slug}_dashboard"
+
+    # Map roles to namespaces
+    namespace_por_rol = {
+        "gerente": "gerencia",
+        # Add more role mappings here
+    }
+
+    namespace = namespace_por_rol.get(rol_slug, None)
+
+    # Try with namespace first
+    if namespace:
+        try:
+            return reverse_lazy(f"{namespace}:{nombre_url}")
+        except NoReverseMatch:
+            pass
+
+    # Fall back to no namespace
+    try:
+        return reverse_lazy(nombre_url)
+    except NoReverseMatch:
+        return reverse_lazy("home")
+```
+
+<Tip>
+Role names are automatically converted to URL patterns: "Gerente de Colonia" becomes `gerente-de-colonia_dashboard`.
+</Tip>
+
+## Permission Checking in Views
+
+Use Django's permission decorators to protect views:
+
+```python
+from django.contrib.auth.decorators import permission_required
+
+@permission_required('administrador.asignar_roles', raise_exception=True)
+def asignar_rol_view(request):
+    # Only users with 'asignar_roles' permission can access
+    pass
+```
+
+Or in class-based views:
+
+```python
+from django.contrib.auth.mixins import PermissionRequiredMixin
+
+class AsignarRolView(PermissionRequiredMixin, View):
+    permission_required = 'administrador.asignar_roles'
+    # View logic
+```
+
+## Role Display Context
+
+The administrator dashboard provides role data for management:
+
+```python administrador/views.py:88
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    
+    # All permissions for role creation
+    context['permisos'] = Permission.objects.all()
+    
+    # All roles for display
+    context['roles'] = Rol.objects.all()
+    
+    # Role distribution analytics
+    roles = Rol.objects.all()
+    roles_labels = [rol.nombre for rol in roles]
+    roles_cantidades = [User.objects.filter(rol=rol).count() for rol in roles]
+    context['roles_labels'] = json.dumps(roles_labels)
+    context['roles_cantidades'] = json.dumps(roles_cantidades)
+    
+    return context
+```
+
+## Superuser Handling
+
+Superusers have special treatment in the role system:
+
+```python administrador/models.py:113
+@property
+def rol_efectivo(self):
+    """
+    Returns a role object for all users.
+    Superusers get a fake 'Administrador' role.
+    """
+    if self.is_superuser:
+        return type('RolFake', (), {
+            'nombre': 'administrador',
+            'color': 'danger'
+        })()
+    return self.rol
+```
+
+<Info>
+Superusers bypass the role system entirely but are given a virtual "administrador" role for display consistency in the UI.
+</Info>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="tag">
+    Use clear, role-specific names like "Coordinador Regional" instead of generic terms
+  </Card>
+  <Card title="Principle of Least Privilege" icon="shield">
+    Grant only the permissions necessary for each role's responsibilities
+  </Card>
+  <Card title="Document Roles" icon="book">
+    Use the description field to explain role responsibilities and permissions
+  </Card>
+  <Card title="Color Consistency" icon="palette">
+    Use meaningful colors: danger for admin, primary for managers, etc.
+  </Card>
+  <Card title="Test Permissions" icon="vial">
+    Verify that role permissions grant appropriate access before assigning to users
+  </Card>
+  <Card title="Audit Changes" icon="clipboard-check">
+    Monitor role changes through notifications and audit logs
+  </Card>
+</CardGroup>
+
+## Common Permission Patterns
+
+### Read-Only Access
+```python
+# Grant only view permissions
+role.permisos.set(
+    Permission.objects.filter(codename__startswith='view_')
+)
+```
+
+### Full Model Access
+```python
+# Grant all permissions for specific models
+role.permisos.set(
+    Permission.objects.filter(
+        content_type__model__in=['colonia', 'solicitud']
+    )
+)
+```
+
+### Custom Permission Only
+```python
+# Grant only custom permissions
+role.permisos.set(
+    Permission.objects.filter(
+        codename__in=['asignar_roles', 'aprobar_usuarios']
+    )
+)
+```

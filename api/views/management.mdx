@@ -1,0 +1,443 @@
+---
+title: "Management Views"
+description: "Manager dashboard and colony management views with filtering and pagination"
+---
+
+## Overview
+
+Management views provide functionality for managers (gerentes) to oversee and manage colonies (colonias) in the system. These views include dashboards, listing, creation, editing, and deletion capabilities with permission checks.
+
+## GerenciaView
+
+Manager dashboard providing overview and access to management functions.
+
+### Class Definition
+
+```python
+class GerenciaView(LoginRequiredMixin, TemplateView):
+    template_name = 'gerencia/gerente_dashboard.html'
+```
+
+**Source:** `gerencia/views.py:14`
+
+### Authentication
+
+- **Required:** Yes
+- **Mixins:** `LoginRequiredMixin`
+- **Expected Role:** Gerente (Manager)
+
+### Methods
+
+#### get_context_data()
+
+Provides context for dashboard including permissions data.
+
+```python
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['permisos'] = Permission.objects.all()
+    return context
+```
+
+**Source:** `gerencia/views.py:17-21`
+
+---
+
+## ColoniaListView
+
+Lists colonies with filtering, search, and pagination capabilities.
+
+### Class Definition
+
+```python
+class ColoniaListView(LoginRequiredMixin, ListView):
+    model = Colonia
+    paginate_by = 25
+    template_name = "gerencia/colonias_list.html"
+    context_object_name = "colonias"
+```
+
+**Source:** `gerencia/views.py:24`
+
+### Authentication
+
+- **Required:** Yes
+- **Mixins:** `LoginRequiredMixin`
+- **Permissions:** View colonia
+
+### Methods
+
+#### get_queryset()
+
+Implements filtering and search functionality.
+
+```python
+def get_queryset(self):
+    # Optimize related queries
+    qs = Colonia.objects.prefetch_related("distritos").all()
+    
+    # Get filter parameters
+    q = self.request.GET.get("q")
+    estado = self.request.GET.get("estado")
+    distrito = self.request.GET.get("distrito")
+    
+    # Apply filters
+    if q:
+        qs = qs.filter(nombre__icontains=q)
+    if estado:
+        qs = qs.filter(estado=estado)
+    if distrito:
+        qs = qs.filter(distritos__id=distrito)
+    
+    return qs.distinct()
+```
+
+**Source:** `gerencia/views.py:30-41`
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `q` | string | Search term for colony name (case-insensitive) |
+| `estado` | string | Filter by colony status |
+| `distrito` | int | Filter by district ID |
+| `page` | int | Page number for pagination (25 items per page) |
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash GET List All
+curl -X GET http://example.com/gerencia/colonias/ \
+  -H "Cookie: sessionid=abc123"
+```
+
+```bash GET With Filters
+curl -X GET "http://example.com/gerencia/colonias/?q=san&estado=ACTIVO&distrito=5" \
+  -H "Cookie: sessionid=abc123"
+```
+
+```bash GET Paginated
+curl -X GET "http://example.com/gerencia/colonias/?page=2" \
+  -H "Cookie: sessionid=abc123"
+```
+</CodeGroup>
+
+### Performance Optimization
+
+- Uses `prefetch_related("distritos")` to reduce database queries
+- Applies `distinct()` to prevent duplicate results from ManyToMany joins
+- Paginated at 25 items per page
+
+---
+
+## ColoniaCreateView
+
+Creates new colonies with automatic code assignment.
+
+### Class Definition
+
+```python
+class ColoniaCreateView(LoginRequiredMixin, CreateView):
+    model = Colonia
+    form_class = ColoniaForm
+    template_name = 'includes/gerencia/modal/colonias/crear_colonia_modal.html'
+```
+
+**Source:** `core/views.py:299`
+
+### Authentication
+
+- **Required:** Yes
+- **Mixins:** `LoginRequiredMixin`
+- **Permissions:** Add colonia
+
+### Methods
+
+#### get_success_url()
+
+Returns to the referring page or defaults to colony list.
+
+```python
+def get_success_url(self):
+    return self.request.META.get('HTTP_REFERER', reverse_lazy('gerencia:listar_colonias'))
+```
+
+**Source:** `core/views.py:304-305`
+
+#### form_valid()
+
+Handles colony creation with automatic code assignment and district association.
+
+```python
+def form_valid(self, form):
+    response = super().form_valid(form)
+    
+    # Find the smallest missing code number
+    codigos_existentes = set(
+        Colonia.objects.values_list('codigo', flat=True))
+    codigo = 1
+    while codigo in codigos_existentes:
+        codigo += 1
+    form.instance.codigo = codigo  # Assign first available number
+    
+    response = super().form_valid(form)
+    
+    # If coming from specific district, ensure it's assigned
+    distrito_id = self.request.POST.get('distritos')
+    if distrito_id:
+        try:
+            distrito = Distrito.objects.get(id=distrito_id)
+            self.object.distritos.add(distrito)
+        except Distrito.DoesNotExist:
+            pass
+    
+    messages.success(
+        self.request,
+        f'Colonia "{self.object.nombre}" creada exitosamente!'
+    )
+    return response
+```
+
+**Source:** `core/views.py:307-333`
+
+### Automatic Code Assignment
+
+The system automatically assigns the lowest available colony code:
+
+1. Query all existing codes
+2. Start from code `1`
+3. Increment until finding an unused code
+4. Assign to new colony
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Create Colony
+curl -X POST http://example.com/gerencia/colonias/crear/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "San Pedro",
+    "estado": "ACTIVO",
+    "distritos": 5,
+    "area": 150.5
+  }'
+```
+
+```json Success Response
+{
+  "success": true,
+  "message": "Colonia 'San Pedro' creada exitosamente!",
+  "codigo": 42
+}
+```
+</CodeGroup>
+
+---
+
+## editar_colonia()
+
+Edits an existing colony's information.
+
+### Function Definition
+
+```python
+def editar_colonia(request, colonia_id):
+    colonia = get_object_or_404(Colonia, id=colonia_id)
+    if request.method == 'POST':
+        # Use form for ManyToMany fields
+        form = ColoniaForm(request.POST, instance=colonia)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Colonia actualizada correctamente.")
+        else:
+            messages.error(request, "Error al actualizar la colonia.")
+        return redirect('gerencia:listar_colonias')
+    return redirect('gerencia:listar_colonias')
+```
+
+**Source:** `core/views.py:343-354`
+
+### Authentication
+
+- **Required:** Yes (via URL configuration)
+- **Permissions:** Change colonia
+
+### URL Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `colonia_id` | int | Yes | Primary key of colony to edit |
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Update Colony
+curl -X POST http://example.com/gerencia/colonias/42/editar/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "San Pedro Actualizado",
+    "estado": "INACTIVO",
+    "distritos": [5, 6]
+  }'
+```
+
+```text Success Response
+HTTP 302 Redirect to /gerencia/colonias/
+Message: "Colonia actualizada correctamente."
+```
+
+```text Error Response
+HTTP 302 Redirect to /gerencia/colonias/
+Message: "Error al actualizar la colonia."
+```
+</CodeGroup>
+
+---
+
+## eliminar_colonia()
+
+Deletes a colony if it has no associated requests or surveys.
+
+### Function Definition
+
+```python
+def eliminar_colonia(request, colonia_id):
+    colonia = get_object_or_404(Colonia, id=colonia_id)
+    
+    # Check for associated records
+    if colonia.solicitudes.exists() or colonia.relevamientos.exists():
+        messages.error(
+            request,
+            "Esta Colonia tiene solicitudes o relevamientos asociados y no puede ser eliminada."
+        )
+    else:
+        colonia.delete()
+        messages.success(request, "Colonia eliminada correctamente.")
+    
+    return redirect('gerencia:listar_colonias')
+```
+
+**Source:** `core/views.py:357-367`
+
+### Authentication
+
+- **Required:** Yes (via URL configuration)
+- **Permissions:** Delete colonia
+
+### Protection Rules
+
+<Warning>
+  Colonies with associated **solicitudes** (requests) or **relevamientos** (surveys) cannot be deleted. This prevents data integrity issues.
+</Warning>
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Delete Colony
+curl -X POST http://example.com/gerencia/colonias/42/eliminar/ \
+  -H "Cookie: sessionid=abc123"
+```
+
+```text Success Response
+HTTP 302 Redirect to /gerencia/colonias/
+Message: "Colonia eliminada correctamente."
+```
+
+```text Protected Record
+HTTP 302 Redirect to /gerencia/colonias/
+Message: "Esta Colonia tiene solicitudes o relevamientos asociados y no puede ser eliminada."
+```
+</CodeGroup>
+
+---
+
+## Permission Checks
+
+All management views implement permission checks through Django's authentication system.
+
+### Implementation Patterns
+
+#### Class-Based Views
+
+```python
+from django.contrib.auth.mixins import LoginRequiredMixin
+
+class ColoniaListView(LoginRequiredMixin, ListView):
+    # Automatically redirects unauthenticated users
+    pass
+```
+
+#### Function-Based Views
+
+```python
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def editar_colonia(request, colonia_id):
+    # Requires authentication
+    pass
+```
+
+### Permission Matrix
+
+| View | Permission | Role |
+|------|------------|------|
+| GerenciaView | Authenticated | Gerente |
+| ColoniaListView | `view_colonia` | Gerente |
+| ColoniaCreateView | `add_colonia` | Gerente |
+| editar_colonia | `change_colonia` | Gerente |
+| eliminar_colonia | `delete_colonia` | Gerente |
+
+---
+
+## Filtering and Search
+
+The colony list view supports multiple filtering options that can be combined.
+
+### Filter Combinations
+
+```python
+# Text search only
+?q=san
+
+# Status filter only
+?estado=ACTIVO
+
+# District filter only
+?distrito=5
+
+# Combined filters
+?q=san&estado=ACTIVO&distrito=5
+
+# With pagination
+?q=san&page=2
+```
+
+### Query Optimization
+
+Filtering is optimized using:
+
+- **Prefetch Related:** Reduces N+1 queries for districts
+- **Case-Insensitive Search:** Uses `icontains` for text search
+- **Distinct Results:** Prevents duplicates from ManyToMany joins
+
+---
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Geographic Data" icon="map" href="/api/views/geographic-data">
+    Department and district management
+  </Card>
+  <Card title="Colonia Model" icon="database" href="/api/models/colonia">
+    Colony model with relationships
+  </Card>
+  <Card title="Forms" icon="file-edit" href="/api/forms/data-forms">
+    ColoniaForm definition
+  </Card>
+  <Card title="Authentication" icon="lock" href="/api/views/authentication">
+    Role-based access control
+  </Card>
+</CardGroup>

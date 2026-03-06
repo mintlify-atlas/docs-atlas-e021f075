@@ -1,0 +1,588 @@
+---
+title: Complete Workflows
+description: End-to-end workflows for common processes in Gestión de Tierras, from user registration to survey completion
+---
+
+## Overview
+
+This guide provides step-by-step workflows for the most common processes in the Gestión de Tierras system. Each workflow shows the complete journey from start to finish, including all user roles involved.
+
+<Note>
+  These workflows combine actions from multiple user guides. Refer to the [Administrator Guide](/guides/administrator) and [Manager Guide](/guides/manager) for detailed instructions on specific steps.
+</Note>
+
+## Workflow 1: User Lifecycle
+
+This workflow covers the complete journey from new user registration to active system access.
+
+### Participants
+- **New User**: Person registering for system access
+- **Administrator**: System admin who approves users and assigns roles
+
+### Process Flow
+
+<Steps>
+  <Step title="User Self-Registration">
+    **Actor:** New User
+    
+    1. Navigate to the signup page at `/registro/`
+    2. Fill out the registration form with two tabs:
+       - **Personal Data**: First name, last name, cédula (CI), phone
+       - **Account Data**: Username, email, password (twice for confirmation)
+    3. Click **Register Account**
+    4. System creates user with:
+       - estado = "PENDIENTE"
+       - creado_por = "usuario"
+       - rol = null (not assigned)
+       - is_active = False
+  </Step>
+  
+  <Step title="Registration Confirmation">
+    **Actor:** New User
+    
+    1. See success message: "Registration successful! Please log in."
+    2. Redirected to login page
+    3. Can log in but will see "Pending Approval" screen
+    4. Screen shows:
+       - 401 status
+       - Message: "Your account is pending role assignment"
+       - Options: Logout or Contact Support
+  </Step>
+  
+  <Step title="Administrator Notification">
+    **Actor:** System
+    
+    1. All administrators receive notification:
+       - Type: INFO
+       - Message: "New user registered: [username]"
+       - Link to administrator dashboard
+    2. Notification appears in notification bell icon
+  </Step>
+  
+  <Step title="Administrator Review">
+    **Actor:** Administrator
+    
+    1. Log in to administrator dashboard
+    2. Notice "Pending Users" count is increased
+    3. Click **Pending** tab
+    4. Review new user's information:
+       - Username, full name
+       - Email address
+       - Cédula (CI) number
+       - Registration date
+    5. Verify identity if required by organization policy
+  </Step>
+  
+  <Step title="Role Assignment">
+    **Actor:** Administrator
+    
+    1. Click actions dropdown (⋮) for the pending user
+    2. Select **Assign Role**
+    3. Modal opens showing:
+       - User icon and full name
+       - Email address
+       - Dropdown of available roles
+    4. Select appropriate role based on user's position:
+       - **Gerente**: For management personnel
+       - **Coordinador**: For survey coordinators
+       - **Analista**: For data analysts
+       - **Invitado**: For limited guest access
+    5. Click **Assign Role** button
+  </Step>
+  
+  <Step title="Automatic Activation">
+    **Actor:** System
+    
+    1. User record updated:
+       - estado changes from "PENDIENTE" to "ACTIVO"
+       - rol set to selected role
+       - is_active becomes True
+    2. Notification sent to all administrators:
+       - Type: INFO
+       - Message: "User [username] assigned to role [role name]"
+    3. Toast message shown to current admin: "Role '[role name]' assigned to [username]"
+  </Step>
+  
+  <Step title="User Access Granted">
+    **Actor:** New User
+    
+    1. Log out and log back in (or refresh if still logged in)
+    2. System checks:
+       - User is_active = True ✓
+       - User has assigned rol ✓
+       - estado = "ACTIVO" ✓
+    3. Redirected to role-specific dashboard:
+       - Gerente → gerente_dashboard
+       - Coordinador → coordinador_dashboard
+       - Analista → analisis_dashboard
+       - Invitado → invitado_dashboard
+    4. Welcome message displayed: "Welcome, [username]!"
+    5. Full access to features based on role permissions
+  </Step>
+</Steps>
+
+### Workflow Diagram (Text)
+
+```
+[User Registration]
+        |
+        v
+[Pending Status] → [Admin Notified]
+        |
+        v
+[Admin Reviews User]
+        |
+        v
+[Admin Assigns Role]
+        |
+        v
+[Auto-Activation]
+        |
+        v
+[User Accesses Dashboard]
+```
+
+<Tip>
+  **Shortcut:** Administrators can skip the approval process by creating users directly via the **Create User** button. These users are created with estado = "ACTIVO" and an assigned role immediately.
+</Tip>
+
+## Workflow 2: Survey Request Lifecycle
+
+This workflow covers creating a survey request, approval, data collection, and completion.
+
+### Participants
+- **Coordinator**: Creates and manages survey requests
+- **Manager**: Approves requests and monitors progress
+- **Survey Team**: Conducts field surveys
+- **Analyst**: Reviews collected data
+
+### Process Flow
+
+<Steps>
+  <Step title="Survey Request Creation">
+    **Actor:** Coordinator
+    
+    1. Navigate to survey requests section
+    2. Click **Create Survey Request**
+    3. Fill in request details:
+       - **Colony (colonia)**: Select from dropdown
+       - **Type (tipo)**: Choose "nuevo" (new survey) or "actualizacion" (data update)
+       - **Observations**: Add notes about survey purpose
+    4. System validates:
+       - Colony exists and is active
+       - No duplicate active request for same colony and type
+    5. Click **Create Request**
+    6. Request created with:
+       - estado = "pendiente"
+       - creado_por = current user
+       - fecha_creacion = current timestamp
+  </Step>
+  
+  <Step title="Manager Review">
+    **Actor:** Manager
+    
+    1. Receive notification of new survey request
+    2. Navigate to survey requests list
+    3. Review request details:
+       - Colony location and district associations
+       - Request type and observations
+       - Created by user
+    4. Verify:
+       - Colony data is complete (finca_matriz, padron_matriz)
+       - Geographic associations are correct
+       - Survey is justified and necessary
+  </Step>
+  
+  <Step title="Request Approval">
+    **Actor:** Manager or Coordinator
+    
+    1. Open request details
+    2. Click **Approve** or change estado to "activo"
+    3. System validates transition:
+       - puede_transicionar("activo") returns True
+       - Current estado is "pendiente"
+    4. Request updated:
+       - estado = "activo"
+       - fecha_actualizacion = current timestamp
+    5. Audit record created in SolicitudAudit:
+       - previo = "pendiente"
+       - nuevo = "activo"
+       - cambiado_por = current user
+  </Step>
+  
+  <Step title="Survey Team Assignment">
+    **Actor:** Coordinator
+    
+    1. Assign survey team to active request
+    2. Provide team with:
+       - Colony details and location
+       - Required data collection forms
+       - Survey objectives
+    3. Change estado to "en_proceso" when team begins work
+  </Step>
+  
+  <Step title="Field Data Collection">
+    **Actor:** Survey Team
+    
+    1. Travel to colony location
+    2. Collect required data:
+       - Land measurements
+       - Property boundaries
+       - Owner information
+       - Current land use
+       - Photos and documentation
+    3. Record data in system or collection forms
+  </Step>
+  
+  <Step title="Relevamiento Creation">
+    **Actor:** Survey Team or Coordinator
+    
+    1. Navigate to Relevamiento creation
+    2. Fill in:
+       - **Colonia**: Select colony (must match solicitud)
+       - **Solicitud**: Link to the active request
+       - **Datos (JSON)**: Enter collected field data
+       - **Realizado por**: Set to survey team member
+    3. System validates:
+       - Solicitud estado is "en_proceso"
+       - No duplicate relevamiento for same colony on same date
+    4. Click **Create Relevamiento**
+    5. Relevamiento saved with fecha = current timestamp
+  </Step>
+  
+  <Step title="Data Review and Analysis">
+    **Actor:** Analyst
+    
+    1. Access relevamientos list
+    2. Filter by colony or date range
+    3. Review collected datos (JSON fields)
+    4. Validate:
+       - Data completeness
+       - Accuracy of measurements
+       - Consistency with previous surveys
+    5. Request corrections if needed
+  </Step>
+  
+  <Step title="Survey Completion">
+    **Actor:** Coordinator or Manager
+    
+    1. Once data is validated and complete
+    2. Open the solicitud
+    3. Change estado to "inactivo"
+    4. System creates audit record:
+       - previo = "en_proceso"
+       - nuevo = "inactivo"
+    5. Add final observaciones summarizing results
+    6. Notify relevant stakeholders
+  </Step>
+</Steps>
+
+### State Transitions
+
+Valid survey request estado transitions:
+
+```
+pendiente → activo (approval)
+pendiente → inactivo (rejection)
+activo → en_proceso (survey begins)
+activo → inactivo (cancellation)
+en_proceso → activo (pause/review)
+en_proceso → inactivo (completion)
+inactivo → activo (reopen)
+```
+
+<Warning>
+  The system enforces these transitions via the `puede_transicionar()` method. Attempting invalid transitions will fail with an error.
+</Warning>
+
+## Workflow 3: Geographic Data Setup
+
+This workflow shows how to set up the complete geographic hierarchy for a new region.
+
+### Participants
+- **Manager (Gerente)**: Creates and organizes geographic entities
+- **Administrator**: Grants manager permissions
+
+### Process Flow
+
+<Steps>
+  <Step title="Create Department">
+    **Actor:** Manager
+    
+    1. Log in to gerente_dashboard
+    2. Click **Departments** → **Ver lista**
+    3. Click **Create Department**
+    4. Enter:
+       - **Name**: Department name (e.g., "Alto Paraná")
+       - **Code**: Leave empty for auto-generation
+    5. Click **Create**
+    6. Department saved with auto-assigned codigo
+    7. Appears in departments list
+  </Step>
+  
+  <Step title="Add Districts to Department">
+    **Actor:** Manager
+    
+    **Option A: From Department View**
+    1. Open department details
+    2. Click **Create District from Department**
+    3. Departamento field pre-filled
+    4. Enter district nombre
+    5. Save district
+    
+    **Option B: From Districts List**
+    1. Navigate to **Districts** → **Ver lista**
+    2. Click **Create District**
+    3. Select departamento from dropdown
+    4. Enter nombre and optional codigo
+    5. Save district
+    
+    **Repeat for all districts** in the department (e.g., for Alto Paraná: create "Ciudad del Este", "Presidente Franco", "Hernandarias", etc.)
+  </Step>
+  
+  <Step title="Create Colonies in Districts">
+    **Actor:** Manager
+    
+    For each colony in the region:
+    
+    1. Navigate to **Colonies** → **Ver lista**
+    2. Click **Create Colony**
+    3. Fill in:
+       - **Nombre**: Colony name (e.g., "Colonia San Alberto")
+       - **Finca Matriz**: Property registry number if known
+       - **Padrón Matriz**: Land parcel number if known
+       - **Estado**: Select "activo"
+       - **Distritos**: **Select one or more districts** (required!)
+    4. Click **Create**
+    5. System validates:
+       - Name is unique
+       - At least one distrito selected
+    6. Colony created with auto-generated codigo
+  </Step>
+  
+  <Step title="Handle Multi-District Colonies">
+    **Actor:** Manager
+    
+    Some colonies span multiple districts:
+    
+    1. When creating the colony, hold Ctrl/Cmd and select multiple districts
+    2. System creates many-to-many relationships
+    3. Colony appears in the colony list for all associated districts
+  </Step>
+  
+  <Step title="Verify Geographic Hierarchy">
+    **Actor:** Manager
+    
+    1. Export departments list to Excel
+    2. Export districts list to Excel
+    3. Export colonies list to Excel
+    4. Review in spreadsheet:
+       - Each district belongs to correct department
+       - Each colony associated with appropriate districts
+       - No orphaned entities
+    5. Make corrections if needed via edit functions
+  </Step>
+  
+  <Step title="Add Missing Registry Data">
+    **Actor:** Manager
+    
+    Over time, add finca_matriz and padron_matriz:
+    
+    1. As land registry data becomes available
+    2. Edit each colony
+    3. Add finca_matriz and padron_matriz numbers
+    4. Save updates
+    5. This data is critical for survey requests and titling processes
+  </Step>
+</Steps>
+
+### Hierarchy Example
+
+```
+Departamento: Alto Paraná (codigo: 10)
+  ├── Distrito: Ciudad del Este (codigo: 1)
+  │     ├── Colonia: San Alberto
+  │     ├── Colonia: Área 1
+  │     └── Colonia: Área 5
+  ├── Distrito: Presidente Franco (codigo: 2)
+  │     ├── Colonia: Área 1 (shared with Ciudad del Este)
+  │     └── Colonia: Colonia Franco
+  └── Distrito: Hernandarias (codigo: 3)
+        ├── Colonia: Itaipú
+        └── Colonia: Costa del Paraná
+```
+
+<Note>
+  Notice "Área 1" is associated with both Ciudad del Este and Presidente Franco districts. This is a valid many-to-many relationship.
+</Note>
+
+## Workflow 4: User Role Change
+
+This workflow covers changing an existing user's role or status.
+
+### Process Flow
+
+<Steps>
+  <Step title="Identify Need for Role Change">
+    **Actor:** Administrator or User
+    
+    Reasons for role change:
+    - User promoted to new position
+    - Responsibilities changed
+    - Temporary assignment to different role
+    - Incorrect role initially assigned
+  </Step>
+  
+  <Step title="Administrator Access">
+    **Actor:** Administrator
+    
+    1. Log in to administrador_dashboard
+    2. Navigate to **All** or **Active** users tab
+    3. Use search or filters to find the user
+  </Step>
+  
+  <Step title="Change Role">
+    **Actor:** Administrator
+    
+    1. Click actions dropdown (⋮) for the user
+    2. Select **Assign Role**
+    3. Modal shows current role in dropdown (pre-selected)
+    4. Select new role from dropdown
+    5. Click **Assign Role**
+    6. System updates:
+       - user.rol = new_rol
+       - estado remains "ACTIVO"
+    7. Toast notification: "Role '[new role]' assigned to [username]"
+  </Step>
+  
+  <Step title="User Re-Login">
+    **Actor:** User
+    
+    1. Log out of current session (or wait for session refresh)
+    2. Log back in
+    3. Redirected to new role's dashboard:
+       - New rol_slug calculated from rol.nombre
+       - Redirected to {rol_slug}_dashboard
+    4. New permissions take effect immediately
+    5. Sidebar and navigation reflect new role
+  </Step>
+  
+  <Step title="Verify Access">
+    **Actor:** User
+    
+    1. Test access to features for new role
+    2. Confirm old role features are no longer accessible (if restricted)
+    3. Report any access issues to administrator
+  </Step>
+</Steps>
+
+<Tip>
+  **Temporary Role Changes:** If a user needs temporary different access (e.g., covering for another employee), change their role temporarily and change it back when the temporary period ends.
+</Tip>
+
+## Decision Trees
+
+### Should I Create a New Role?
+
+```
+Need to grant access to user
+  |
+  v
+Does an existing role match their responsibilities?
+  |
+  +-- YES → Assign existing role
+  |
+  +-- NO → Does this represent a new job function?
+          |
+          +-- YES → Create new role with appropriate permissions
+          |
+          +-- NO → Modify permissions of closest existing role
+```
+
+### Should I Deactivate or Delete?
+
+```
+Need to remove user access
+  |
+  v
+Is this temporary?
+  |
+  +-- YES → Deactivate (estado = INACTIVO)
+  |         User can be reactivated later
+  |
+  +-- NO → Is the user no longer employed?
+          |
+          +-- YES → Deactivate (preserve audit trail)
+          |
+          +-- NO (wrong account, duplicate, etc.) → 
+                  Consider deletion, but deactivation is safer
+```
+
+### Survey Request Estado Selection
+
+```
+What is the current status of the survey?
+  |
+  +-- Just created, needs approval → pendiente
+  |
+  +-- Approved, ready for field work → activo
+  |
+  +-- Team is currently in the field → en_proceso
+  |
+  +-- Completed or cancelled → inactivo
+```
+
+## Tips for Efficient Workflow Management
+
+### For Administrators
+
+1. **Regular Pending Review**: Check pending users at least once daily
+2. **Role Documentation**: Maintain internal documentation of what each role is for
+3. **Bulk Operations**: If approving many users, do them in a single session to avoid context switching
+4. **Monitor Statistics**: Use the dashboard charts to identify unusual patterns
+
+### For Managers
+
+1. **Batch Geographic Setup**: Create all departments first, then all districts, then colonies
+2. **Use Export Features**: Export data regularly for backup and analysis
+3. **Consistent Naming**: Establish and follow naming conventions
+4. **Verify Before Saving**: Double-check district associations before creating colonies
+
+### For Coordinators
+
+1. **Clear Observations**: Always add detailed observaciones to survey requests
+2. **Estado Updates**: Keep request estados current to reflect actual progress
+3. **Link Relevamientos**: Always associate relevamientos with their source solicitud
+4. **Communication**: Coordinate with managers and analysts throughout the survey process
+
+## Troubleshooting Workflows
+
+### User Can't Access System After Approval
+
+**Check:**
+1. User estado is "ACTIVO" (not "PENDIENTE" or "INACTIVO")
+2. User has non-null rol assigned
+3. User has logged out and back in since approval
+4. Role name matches a dashboard route (e.g., "gerente" → gerente_dashboard)
+
+### Survey Request Won't Transition to en_proceso
+
+**Check:**
+1. Current estado is "activo" (can only go to en_proceso from activo)
+2. Using the correct estado change function (not manually editing)
+3. Request was properly approved first
+
+### Colony Creation Fails
+
+**Check:**
+1. At least one distrito is selected
+2. Colony nombre is unique (no duplicates)
+3. All selected districts exist and are valid
+4. Form validation passed (all required fields filled)
+
+## Related Resources
+
+- [Administrator Guide](/guides/administrator) - Detailed admin features and permissions
+- [Manager Guide](/guides/manager) - Geographic entity management specifics
+- API Reference - Technical details on models and permissions
+- Configuration Guide - System settings and customization

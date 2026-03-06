@@ -1,0 +1,645 @@
+---
+title: "Geographic Data Views"
+description: "Department, district, and colony management with AJAX support and cascade protection"
+---
+
+## Overview
+
+Geographic data views manage the hierarchical structure of departments, districts, and colonies. These views support both standard HTTP and AJAX requests, with cascade protection to prevent deletion of records with dependencies.
+
+## Department Views
+
+### DepartamentoListView
+
+Lists all departments with their associated districts.
+
+```python
+class DepartamentoListView(LoginRequiredMixin, ListView):
+    model = Departamento
+    template_name = 'includes/gerencia/tablas/listar_departamentos.html'
+    context_object_name = 'departamentos'
+```
+
+**Source:** `core/views.py:27`
+
+#### Authentication
+
+- **Required:** Yes
+- **Mixins:** `LoginRequiredMixin`
+
+#### Methods
+
+##### get_queryset()
+
+Optimizes queries by prefetching related districts.
+
+```python
+def get_queryset(self):
+    # Prefetch optimizes districts
+    return Departamento.objects.prefetch_related('distritos').all()
+```
+
+**Source:** `core/views.py:32-34`
+
+##### get_context_data()
+
+Includes empty form for modal creation.
+
+```python
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['form'] = DepartamentoForm()
+    return context
+```
+
+**Source:** `core/views.py:36-39`
+
+---
+
+### crear_departamento()
+
+Creates new departments with AJAX support and admin notifications.
+
+```python
+@require_POST
+def crear_departamento(request):
+    form = DepartamentoForm(request.POST)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if form.is_valid():
+        departamento = form.save()
+        notificar_a_admins(
+            mensaje=f'Se ha creado un nuevo Departamento: "{departamento.nombre}".',
+            tipo="INFO",
+            exclude_user=request.user,
+            link=reverse("gerencia:listar_departamentos")
+        )
+        messages.success(request, f'El Departamento "{departamento.nombre}" fue creado!')
+        data = {
+            'success': True,
+            'departamento': {
+                'id': departamento.id,
+                'nombre': departamento.nombre
+            }
+        }
+        
+        if is_ajax:
+            return JsonResponse(data)
+        messages.success(request, data['message'])
+        return redirect('gerencia:listar_departamentos')
+    
+    # Validation errors
+    errores = form.errors.get_json_data()
+    mensajes = [error['message'] for campo in errores.values() for error in campo]
+    data = {'success': False, 'message': ' '.join(mensajes)}
+    
+    if is_ajax:
+        return JsonResponse(data, status=400)
+    messages.error(request, data['message'])
+    return redirect('gerencia:listar_departamentos')
+```
+
+**Source:** `core/views.py:42-78`
+
+#### HTTP Methods
+
+- **POST:** Create department
+- **AJAX Support:** Detects `X-Requested-With: XMLHttpRequest` header
+
+#### Request/Response Examples
+
+<CodeGroup>
+```bash POST Standard Request
+curl -X POST http://example.com/departamentos/crear/ \
+  -H "Cookie: sessionid=abc123" \
+  -d "nombre=Caaguazú"
+```
+
+```bash POST AJAX Request
+curl -X POST http://example.com/departamentos/crear/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -H "Content-Type: application/json" \
+  -d '{"nombre": "Caaguazú"}'
+```
+
+```json AJAX Success Response
+{
+  "success": true,
+  "departamento": {
+    "id": 15,
+    "nombre": "Caaguazú"
+  }
+}
+```
+
+```json AJAX Error Response
+{
+  "success": false,
+  "message": "Este campo es obligatorio."
+}
+```
+</CodeGroup>
+
+---
+
+### editar_departamento()
+
+Edits existing departments with notifications.
+
+```python
+def editar_departamento(request, departamento_id):
+    """Edita un departamento existente."""
+    departamento = get_object_or_404(Departamento, id=departamento_id)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if request.method == 'POST':
+        form = DepartamentoForm(request.POST, instance=departamento)
+        if form.is_valid():
+            form.save()
+            notificar_a_admins(
+                mensaje=f'El Departamento "{departamento.nombre}" fue editado.',
+                tipo="WARNING",
+                exclude_user=request.user
+            )
+            msg = "Departamento modificado."
+            messages.info(request, f'El Departamento "{departamento.nombre}" fue modificado!')
+            if is_ajax:
+                return JsonResponse({'success': True, 'message': msg})
+            messages.success(request, msg)
+        else:
+            msg = " ".join([err for errs in form.errors.values() for err in errs])
+            if is_ajax: 
+                return JsonResponse({'success': False, 'message': msg}, status=400)
+            messages.error(request, msg)
+        return redirect('gerencia:listar_departamentos')
+    
+    return redirect('gerencia:listar_departamentos')
+```
+
+**Source:** `core/views.py:81-107`
+
+#### URL Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `departamento_id` | int | Yes | Department primary key |
+
+---
+
+### eliminar_departamento()
+
+Deletes departments with cascade protection.
+
+```python
+@require_POST
+def eliminar_departamento(request, departamento_id):
+    """Elimina un departamento si no tiene distritos asociados."""
+    departamento = get_object_or_404(Departamento, id=departamento_id)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    # Check for associated districts
+    if departamento.distritos.exists():
+        msg = "No se puede eliminar: el Departamento tiene Distritos asociados."
+        
+        if is_ajax:
+            return JsonResponse({'success': False, 'message': msg}, status=400)
+        messages.error(request, msg)
+        return redirect('gerencia:listar_departamentos')
+    
+    departamento.delete()
+    msg = "Departamento eliminado correctamente."
+    messages.info(request, f'El Departamento "{departamento.nombre}" fue eliminado!')
+    if is_ajax:
+        return JsonResponse({'success': True, 'message': msg})
+    messages.info(request, msg)
+    return redirect('gerencia:listar_departamentos')
+```
+
+**Source:** `core/views.py:110-130`
+
+#### Protection Rules
+
+<Warning>
+  Departments with associated **districts** cannot be deleted. The system checks `departamento.distritos.exists()` before allowing deletion.
+</Warning>
+
+---
+
+## District Views
+
+### listar_distritos()
+
+Lists all districts with their departments.
+
+```python
+def listar_distritos(request):
+    """Lista todos los distritos con sus departamentos"""
+    distritos = Distrito.objects.select_related('departamento').all().order_by('nombre')
+    departamentos = Departamento.objects.all()
+    form = DistritoForm()
+    return render(
+        request,
+        'includes/gerencia/tablas/listar_distritos.html',
+        {'distritos': distritos, 'departamentos': departamentos, 'form': form}
+    )
+```
+
+**Source:** `core/views.py:142-151`
+
+#### Query Optimization
+
+- Uses `select_related('departamento')` to reduce database queries
+- Orders results by district name
+- Includes form for modal creation
+
+---
+
+### crear_distrito()
+
+Creates districts with improved AJAX error handling.
+
+```python
+@require_POST
+def crear_distrito(request):
+    """Crea un nuevo distrito"""
+    form = DistritoForm(request.POST)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if form.is_valid():
+        distrito = form.save()
+        messages.success(request, f'El Distrito "{distrito.nombre}" fue creado!')
+        data = {
+            'success': True,
+        }
+        
+        if is_ajax:
+            return JsonResponse(data)
+        
+        messages.success(request, data['message'])
+        return redirect('gerencia:listar_distritos')
+    
+    # Error handling
+    if is_ajax:
+        errores = {}
+        for field, errors in form.errors.items():
+            errores[field] = [str(error) for error in errors]
+        
+        return JsonResponse({
+            'success': False,
+            'errors': errores
+        }, status=400)
+    
+    # Non-AJAX error handling
+    for error in form.errors.values():
+        messages.error(request, error)
+    
+    return redirect('gerencia:listar_distritos')
+```
+
+**Source:** `core/views.py:154-188`
+
+#### AJAX Error Response
+
+```json
+{
+  "success": false,
+  "errors": {
+    "nombre": ["Este campo es obligatorio."],
+    "departamento": ["Seleccione una opción válida."]
+  }
+}
+```
+
+---
+
+### editar_distrito()
+
+Edits existing districts.
+
+```python
+@require_POST
+def editar_distrito(request, pk):
+    """Edita un distrito existente"""
+    distrito = get_object_or_404(Distrito, pk=pk)
+    form = DistritoForm(request.POST, instance=distrito)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if form.is_valid():
+        distrito = form.save()
+        
+        data = {
+            'success': True,
+            'message': f'El Distrito "{distrito.nombre}" fue modificado.'
+        }
+        
+        if is_ajax:
+            return JsonResponse(data)
+        
+        messages.success(request, data['message'])
+        return redirect('gerencia:listar_distritos')
+    
+    # Error handling
+    if is_ajax:
+        errores = {}
+        for field, errors in form.errors.items():
+            errores[field] = [str(error) for error in errors]
+        
+        return JsonResponse({
+            'success': False,
+            'errors': errores
+        }, status=400)
+    
+    # Non-AJAX error handling
+    for error in form.errors.values():
+        messages.error(request, error)
+    
+    return redirect('gerencia:listar_distritos')
+```
+
+**Source:** `core/views.py:191-227`
+
+---
+
+### eliminar_distrito()
+
+Deletes districts with cascade protection for colonies.
+
+```python
+@require_POST
+def eliminar_distrito(request, pk):
+    """Elimina un distrito si no tiene colonias asociadas"""
+    distrito = get_object_or_404(Distrito, pk=pk)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    # Check for associated colonies
+    if distrito.colonias.exists():
+        msg = f'No se puede eliminar el distrito "{distrito.nombre}" porque tiene {distrito.colonias.count()} colonia(s) asociada(s).'
+        
+        if is_ajax:
+            return JsonResponse({
+                'success': False,
+                'message': msg
+            }, status=400)
+        
+        messages.error(request, msg)
+        return redirect('gerencia:listar_distritos')
+    
+    nombre_distrito = distrito.nombre
+    distrito.delete()
+    
+    msg = f'El Distrito "{nombre_distrito}" fue eliminado.'
+    
+    if is_ajax:
+        return JsonResponse({
+            'success': True,
+            'message': msg
+        })
+    
+    messages.success(request, msg)
+    return redirect('gerencia:listar_distritos')
+```
+
+**Source:** `core/views.py:230-261`
+
+#### Protection Rules
+
+<Warning>
+  Districts with associated **colonies** cannot be deleted. The error message includes the count of associated colonies.
+</Warning>
+
+---
+
+## Colony Views
+
+### ColoniaListView
+
+Lists colonies with advanced filtering capabilities.
+
+```python
+class ColoniaListView(LoginRequiredMixin, ListView):
+    model = Colonia
+    paginate_by = 25
+    template_name = 'includes/gerencia/tablas/listar_colonias.html'
+    context_object_name = 'colonias'
+    form_class = ColoniaForm
+```
+
+**Source:** `core/views.py:267`
+
+#### get_queryset()
+
+Implements multi-parameter filtering.
+
+```python
+def get_queryset(self):
+    # Optimize related queries
+    qs = Colonia.objects.prefetch_related('solicitudes').all()
+    
+    q = self.request.GET.get('q')
+    estado = self.request.GET.get('estado')
+    departamento_id = self.request.GET.get('departamento')  
+    distrito_id = self.request.GET.get('distrito')
+    
+    if q:
+        qs = qs.filter(nombre__icontains=q)
+    if estado:
+        qs = qs.filter(estado=estado)
+    if distrito_id:
+        qs = qs.filter(distritos__id=distrito_id)
+    
+    return qs.distinct()
+```
+
+**Source:** `core/views.py:274-290`
+
+#### Filter Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `q` | string | Name search (case-insensitive) |
+| `estado` | string | Colony status filter |
+| `departamento` | int | Department ID (unused in current implementation) |
+| `distrito` | int | District ID filter |
+
+---
+
+### ColoniaCreateView
+
+Creates colonies with automatic code assignment.
+
+```python
+class ColoniaCreateView(LoginRequiredMixin, CreateView):
+    model = Colonia
+    form_class = ColoniaForm
+    template_name = 'includes/gerencia/modal/colonias/crear_colonia_modal.html'
+```
+
+**Source:** `core/views.py:299`
+
+#### Automatic Code Assignment
+
+```python
+def form_valid(self, form):
+    response = super().form_valid(form)
+    
+    # Find smallest missing code number
+    codigos_existentes = set(
+        Colonia.objects.values_list('codigo', flat=True))
+    codigo = 1
+    while codigo in codigos_existentes:
+        codigo += 1
+    form.instance.codigo = codigo  # Assign first available number
+    
+    response = super().form_valid(form)
+    
+    # Associate with district if provided
+    distrito_id = self.request.POST.get('distritos')
+    if distrito_id:
+        try:
+            distrito = Distrito.objects.get(id=distrito_id)
+            self.object.distritos.add(distrito)
+        except Distrito.DoesNotExist:
+            pass
+    
+    messages.success(
+        self.request,
+        f'Colonia "{self.object.nombre}" creada exitosamente!'
+    )
+    return response
+```
+
+**Source:** `core/views.py:307-333`
+
+---
+
+### editar_colonia()
+
+Edits colony information including ManyToMany relationships.
+
+```python
+def editar_colonia(request, colonia_id):
+    colonia = get_object_or_404(Colonia, id=colonia_id)
+    if request.method == 'POST':
+        # Use form for ManyToMany fields
+        form = ColoniaForm(request.POST, instance=colonia)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Colonia actualizada correctamente.")
+        else:
+            messages.error(request, "Error al actualizar la colonia.")
+        return redirect('gerencia:listar_colonias')
+    return redirect('gerencia:listar_colonias')
+```
+
+**Source:** `core/views.py:343-354`
+
+---
+
+### eliminar_colonia()
+
+Deletes colonies with protection for associated records.
+
+```python
+def eliminar_colonia(request, colonia_id):
+    colonia = get_object_or_404(Colonia, id=colonia_id)
+    if colonia.solicitudes.exists() or colonia.relevamientos.exists():
+        messages.error(
+            request,
+            "Esta Colonia tiene solicitudes o relevamientos asociados y no puede ser eliminada."
+        )
+    else:
+        colonia.delete()
+        messages.success(request, "Colonia eliminada correctamente.")
+    return redirect('gerencia:listar_colonias')
+```
+
+**Source:** `core/views.py:357-367`
+
+#### Protection Rules
+
+<Warning>
+  Colonies with associated **solicitudes** (requests) or **relevamientos** (surveys) cannot be deleted.
+</Warning>
+
+---
+
+## AJAX Request Handling
+
+All geographic data views support both standard HTTP and AJAX requests.
+
+### Detection Pattern
+
+```python
+is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+```
+
+### Response Patterns
+
+#### Success (AJAX)
+
+```json
+{
+  "success": true,
+  "message": "Operation successful",
+  "data": {...}
+}
+```
+
+#### Error (AJAX)
+
+```json
+{
+  "success": false,
+  "message": "Error description",
+  "errors": {
+    "field_name": ["error message"]
+  }
+}
+```
+
+#### Success (Standard HTTP)
+
+- **Status:** 302 Redirect
+- **Messages:** Django messages framework
+- **Destination:** List view
+
+---
+
+## Cascade Protection Summary
+
+| Entity | Protected By | Cannot Delete If |
+|--------|--------------|------------------|
+| Departamento | Districts | Has distritos |
+| Distrito | Colonies | Has colonias |
+| Colonia | Requests/Surveys | Has solicitudes or relevamientos |
+
+### Protection Implementation
+
+```python
+# Check for related objects
+if parent_object.related_objects.exists():
+    return error_response("Cannot delete: has dependencies")
+
+# Safe to delete
+parent_object.delete()
+```
+
+---
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Management Views" icon="briefcase" href="/api/views/management">
+    Colony management for managers
+  </Card>
+  <Card title="Geographic Models" icon="database" href="/api/models/departamento">
+    Departamento, Distrito, Colonia models
+  </Card>
+  <Card title="Forms" icon="file-edit" href="/api/forms/data-forms">
+    Geographic data forms
+  </Card>
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Admin notification system
+  </Card>
+</CardGroup>

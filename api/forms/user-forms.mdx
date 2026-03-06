@@ -1,0 +1,346 @@
+---
+title: 'User Forms'
+description: 'User registration, authentication, and profile management forms'
+---
+
+# User Forms
+
+User forms handle registration, authentication, password management, and profile editing in the Gestión de Tierras system.
+
+## CustomUserCreationForm
+
+Form for user self-registration with "invitado" (guest) role by default.
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | TextInput | Yes | Username (letters, numbers, @/./+/-/_) |
+| `email` | EmailInput | No* | User email address |
+| `password1` | PasswordInput | Yes | Initial password |
+| `password2` | PasswordInput | Yes | Password confirmation |
+| `first_name` | TextInput | No* | User's first name |
+| `last_name` | TextInput | No* | User's last name |
+| `ci` | TextInput | No* | Cédula de identidad (6-8 digits) |
+| `telefono` | TextInput | No* | Phone number (10 digits) |
+
+<Note>
+  *Fields are currently set to `required=False` for testing. Should be changed to `True` in production.
+</Note>
+
+### Widget Configuration
+
+```python administrador/forms.py:20-51
+widgets = {
+    'email': forms.EmailInput(attrs={
+        'placeholder': 'Correo electrónico',
+        'class': 'form-control'
+    }),
+    'first_name': forms.TextInput(attrs={
+        'placeholder': 'Nombre',
+        'class': 'form-control'
+    }),
+    'last_name': forms.TextInput(attrs={
+        'placeholder': 'Apellido',
+        'class': 'form-control'
+    }),
+    'ci': forms.TextInput(attrs={
+        'placeholder': 'Ej: 12345678',
+        'pattern': '[0-9]{6,8}',
+        'title': '6 a 8 dígitos sin guiones',
+        'inputmode': 'numeric',
+        'maxlength': '8',
+        'class': 'form-control',
+        'oninput': "this.value = this.value.replace(/[^0-9]/g, '');"
+    }),
+    'telefono': forms.TextInput(attrs={
+        'placeholder': 'Ej: 0999999999',
+        'pattern': '[0-9]{10}',
+        'title': '10 dígitos, sin guiones ni espacios',
+        'inputmode': 'numeric',
+        'maxlength': '10',
+        'class': 'form-control',
+        'oninput': "this.value = this.value.replace(/[^0-9]/g, '');"
+    })
+}
+```
+
+### Custom Save Method
+
+The form automatically sets `creado_por` to `'usuario'` to track self-registered users:
+
+```python administrador/forms.py:10-15
+def save(self, commit=True):
+    user = super().save(commit=False)
+    user.creado_por = 'usuario'
+    if commit:
+        user.save()
+    return user
+```
+
+### Input Validation
+
+- **CI (Cédula)**: Client-side regex validation ensures only 6-8 numeric digits
+- **Teléfono**: Client-side validation enforces exactly 10 numeric digits
+- **JavaScript sanitization**: Automatically removes non-numeric characters from CI and phone fields
+
+### Usage Example
+
+```python
+from administrador.forms import CustomUserCreationForm
+
+def register_view(request):
+    if request.method == 'POST':
+        form = CustomUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()  # Automatically sets creado_por='usuario'
+            login(request, user)
+            return redirect('home')
+    else:
+        form = CustomUserCreationForm()
+    
+    return render(request, 'register.html', {'form': form})
+```
+
+### Template Integration with widget_tweaks
+
+```html
+{% load widget_tweaks %}
+
+<form method="post">
+    {% csrf_token %}
+    
+    {{ form.username|add_class:"form-control" }}
+    {{ form.email|add_class:"form-control" }}
+    {{ form.first_name|add_class:"form-control" }}
+    {{ form.last_name|add_class:"form-control" }}
+    {{ form.ci|add_class:"form-control" }}
+    {{ form.telefono|add_class:"form-control" }}
+    {{ form.password1|add_class:"form-control" }}
+    {{ form.password2|add_class:"form-control" }}
+    
+    <button type="submit">Registrarse</button>
+</form>
+```
+
+---
+
+## CustomPasswordChangeForm
+
+Form for authenticated users to change their password.
+
+### Fields
+
+Inherits from Django's `PasswordChangeForm`:
+
+- `old_password`: Current password verification
+- `new_password1`: New password
+- `new_password2`: New password confirmation
+
+### Widget Customization
+
+All fields receive Bootstrap styling automatically:
+
+```python administrador/forms.py:84-91
+def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    # Personaliza los campos del formulario
+    for field in self.fields:
+        self.fields[field].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': f'Ingrese su {field.replace("_", " ")}'
+        })
+```
+
+### Usage Example
+
+```python
+from django.contrib.auth.decorators import login_required
+from administrador.forms import CustomPasswordChangeForm
+
+@login_required
+def change_password(request):
+    if request.method == 'POST':
+        form = CustomPasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            update_session_auth_hash(request, user)  # Prevent logout
+            messages.success(request, 'Contraseña actualizada exitosamente.')
+            return redirect('profile')
+    else:
+        form = CustomPasswordChangeForm(request.user)
+    
+    return render(request, 'change_password.html', {'form': form})
+```
+
+### Validation
+
+- Validates old password matches current password
+- Enforces Django password validators (length, common passwords, etc.)
+- Ensures new password confirmation matches
+
+---
+
+## SimpleUserCreationForm
+
+Simplified form for administrators to create users with role assignment.
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | TextInput | Yes | Username |
+| `email` | EmailInput | Yes | User email |
+| `password1` | PasswordInput | Yes | Initial password |
+| `password2` | PasswordInput | Yes | Password confirmation |
+| `rol` | ModelChoiceField | No | User role (Rol model) |
+| `estado` | ChoiceField | Yes | Account status (ACTIVO/INACTIVO) |
+
+### Estado Choices
+
+```python administrador/forms.py:102-111
+ESTADOS = (
+    ('ACTIVO', 'Activo'),
+    ('INACTIVO', 'Inactivo'),
+)
+
+estado = forms.ChoiceField(
+    choices=ESTADOS,
+    initial='ACTIVO',
+    widget=forms.Select(attrs={'class': 'form-select'})
+)
+```
+
+### Role Assignment
+
+```python administrador/forms.py:113-117
+rol = forms.ModelChoiceField(
+    queryset=Rol.objects.all(),
+    widget=forms.Select(attrs={'class': 'form-select'}),
+    required=False
+)
+```
+
+### Custom Save Method
+
+Tracks admin-created users:
+
+```python administrador/forms.py:96-101
+def save(self, commit=True):
+    user = super().save(commit=False)
+    user.creado_por = 'admin'
+    if commit:
+        user.save()
+    return user
+```
+
+### Usage Example
+
+```python
+from administrador.forms import SimpleUserCreationForm
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def admin_create_user(request):
+    if request.method == 'POST':
+        form = SimpleUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()  # Sets creado_por='admin'
+            messages.success(request, f'Usuario {user.username} creado exitosamente.')
+            return redirect('user_list')
+    else:
+        form = SimpleUserCreationForm()
+    
+    return render(request, 'admin/create_user.html', {'form': form})
+```
+
+---
+
+## CustomUserChangeForm
+
+Form for users to edit their profile information (excludes password).
+
+### Fields
+
+| Field | Type | Widget | Description |
+|-------|------|--------|-------------|
+| `username` | CharField | TextInput | Username |
+| `email` | EmailField | EmailInput | Email address |
+| `first_name` | CharField | TextInput | First name |
+| `last_name` | CharField | TextInput | Last name |
+| `ci` | CharField | TextInput | Cédula de identidad |
+| `telefono` | CharField | TextInput | Phone number |
+
+### Widget Configuration
+
+```python administrador/forms.py:128-135
+widgets = {
+    'username': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre de usuario'}),
+    'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'Correo electrónico'}),
+    'first_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre'}),
+    'last_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Apellido'}),
+    'ci': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Cédula de identidad'}),
+    'telefono': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Teléfono'}),
+}
+```
+
+### Usage Example
+
+```python
+from administrador.forms import CustomUserChangeForm
+
+@login_required
+def edit_profile(request):
+    if request.method == 'POST':
+        form = CustomUserChangeForm(request.POST, instance=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Perfil actualizado exitosamente.')
+            return redirect('profile')
+    else:
+        form = CustomUserChangeForm(instance=request.user)
+    
+    return render(request, 'profile/edit.html', {'form': form})
+```
+
+### Key Differences from CustomUserCreationForm
+
+- Extends `forms.ModelForm` instead of `UserCreationForm`
+- Does not include password fields
+- Used for editing existing users, not creating new ones
+- Does not set `creado_por` field
+
+---
+
+## Error Handling
+
+All forms support Django's built-in error handling:
+
+```html
+{% if form.errors %}
+    <div class="alert alert-danger">
+        <ul>
+            {% for field, errors in form.errors.items %}
+                {% for error in errors %}
+                    <li>{{ field }}: {{ error }}</li>
+                {% endfor %}
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}
+```
+
+## Form Rendering with Bootstrap
+
+All forms use Bootstrap 5 classes:
+
+- `form-control` for text inputs, email, and password fields
+- `form-select` for dropdown selects
+- Placeholders provide user guidance
+- Client-side validation attributes (`pattern`, `maxlength`, `inputmode`)
+
+## Related
+
+- [User Model](/api/models/user)
+- [Authentication Views](/api/views/auth)
+- [Role Model](/api/models/role)

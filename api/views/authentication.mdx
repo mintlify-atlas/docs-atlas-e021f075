@@ -1,0 +1,356 @@
+---
+title: "Authentication Views"
+description: "Custom authentication views for login, signup, and password management with role-based redirects"
+---
+
+## Overview
+
+Authentication views handle user login, registration, and password changes. These views implement role-based redirect logic to send users to their appropriate dashboards after authentication.
+
+## LoginView
+
+Custom login view extending Django's `LoginView` with role-based redirect logic.
+
+### Class Definition
+
+```python
+class LoginView(DjangoLoginView):
+    template_name = 'login.html'
+    redirect_authenticated_user = True
+```
+
+**Source:** `administrador/views.py:28`
+
+### Authentication
+
+- **Required:** No (public endpoint)
+- **Base Class:** `django.contrib.auth.views.LoginView`
+
+### Methods
+
+#### form_invalid()
+
+Handles failed login attempts.
+
+```python
+def form_invalid(self, form):
+    messages.error(self.request, "Usuario o contraseña incorrectos.")
+    return super().form_invalid(form)
+```
+
+#### form_valid()
+
+Handles successful login and displays welcome message.
+
+```python
+def form_valid(self, form):
+    messages.success(
+        self.request, f"¡Bienvenido, {form.get_user().username}!")
+    return super().form_valid(form)
+```
+
+#### get_success_url()
+
+Implements role-based redirect logic to send users to their appropriate dashboard.
+
+```python
+def get_success_url(self):
+    user = self.request.user
+    
+    # Normalize role name to URL format
+    rol_slug = user.rol_nombre.lower().replace(" ", "-")
+    nombre_url = f"{rol_slug}_dashboard"
+    
+    # Map roles to app namespaces
+    namespace_por_rol = {
+        "gerente": "gerencia",
+    }
+    
+    namespace = namespace_por_rol.get(rol_slug, None)
+    
+    # Try with namespace first
+    if namespace:
+        try:
+            return reverse_lazy(f"{namespace}:{nombre_url}")
+        except NoReverseMatch:
+            pass
+    
+    # Try without namespace
+    try:
+        return reverse_lazy(nombre_url)
+    except NoReverseMatch:
+        return reverse_lazy("home")
+```
+
+**Source:** `administrador/views.py:41-69`
+
+### URL Routing
+
+```python
+path('login/', LoginView.as_view(), name='login')
+```
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Request
+curl -X POST http://example.com/login/ \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=jdoe&password=securepass123"
+```
+
+```json Success Response
+{
+  "redirect": "/gerencia/gerente_dashboard/",
+  "message": "¡Bienvenido, jdoe!"
+}
+```
+
+```json Error Response
+{
+  "error": "Usuario o contraseña incorrectos."
+}
+```
+</CodeGroup>
+
+---
+
+## SignUpView
+
+User self-registration view using custom user creation form.
+
+### Class Definition
+
+```python
+class SignUpView(CreateView):
+    form_class = CustomUserCreationForm
+    success_url = reverse_lazy("login")
+    template_name = "registration/signup.html"
+```
+
+**Source:** `administrador/views.py:148`
+
+### Authentication
+
+- **Required:** No (public endpoint)
+- **Form Class:** `CustomUserCreationForm`
+
+### Methods
+
+#### form_valid()
+
+Handles successful registration.
+
+```python
+def form_valid(self, form):
+    response = super().form_valid(form)
+    messages.success(
+        self.request,
+        "¡Registro exitoso! Por favor inicia sesión."
+    )
+    return response
+```
+
+#### form_invalid()
+
+Handles registration errors.
+
+```python
+def form_invalid(self, form):
+    messages.error(
+        self.request,
+        "Error en el registro. Por favor corrige los errores.",
+        extra_tags='danger'
+    )
+    return super().form_invalid(form)
+```
+
+#### get_context_data()
+
+Adds context flags to hide sidebar and notifications on signup page.
+
+```python
+def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['hide_sidebar'] = True
+    context['hide_notifications'] = True
+    return context
+```
+
+**Source:** `administrador/views.py:169-173`
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Request
+curl -X POST http://example.com/signup/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "password1": "securepass123",
+    "password2": "securepass123",
+    "first_name": "John",
+    "last_name": "Doe"
+  }'
+```
+
+```json Success Response
+{
+  "redirect": "/login/",
+  "message": "¡Registro exitoso! Por favor inicia sesión."
+}
+```
+</CodeGroup>
+
+---
+
+## CustomPasswordChangeView
+
+Password change view with role-based redirect after successful change.
+
+### Class Definition
+
+```python
+class CustomPasswordChangeView(PasswordChangeView):
+    form_class = CustomPasswordChangeForm
+    template_name = 'registration/password_change_form.html'
+```
+
+**Source:** `administrador/views.py:178`
+
+### Authentication
+
+- **Required:** Yes
+- **Mixins:** Inherits from `PasswordChangeView` which includes authentication
+
+### Methods
+
+#### get_success_url()
+
+Redirects user to their role-specific dashboard after password change.
+
+```python
+def get_success_url(self):
+    user = self.request.user
+    rol_slug = user.rol_nombre.lower().replace(" ", "-")
+    nombre_url = f"{rol_slug}_dashboard"
+    
+    try:
+        return reverse_lazy(nombre_url)
+    except Exception:
+        return reverse_lazy('home')
+```
+
+**Source:** `administrador/views.py:182-193`
+
+#### form_valid()
+
+Handles successful password change.
+
+```python
+def form_valid(self, form):
+    messages.success(
+        self.request,
+        "¡Tu contraseña ha sido cambiada exitosamente!"
+    )
+    return super().form_valid(form)
+```
+
+**Source:** `administrador/views.py:195-200`
+
+### Request/Response Examples
+
+<CodeGroup>
+```bash POST Request
+curl -X POST http://example.com/password-change/ \
+  -H "Cookie: sessionid=abc123" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "old_password=oldpass123&new_password1=newpass456&new_password2=newpass456"
+```
+
+```json Success Response
+{
+  "redirect": "/gerente/dashboard/",
+  "message": "¡Tu contraseña ha sido cambiada exitosamente!"
+}
+```
+</CodeGroup>
+
+---
+
+## LoginRequiredMixin
+
+All authenticated views in the system use `LoginRequiredMixin` to enforce authentication requirements.
+
+### Usage Example
+
+```python
+from django.contrib.auth.mixins import LoginRequiredMixin
+
+class AdminView(LoginRequiredMixin, TemplateView):
+    template_name = 'administrador/administrador_dashboard.html'
+```
+
+**Source:** `administrador/views.py:85`
+
+### Behavior
+
+- Redirects unauthenticated users to the login page
+- Preserves the original URL in the `next` parameter for post-login redirect
+- Applied to all dashboard and management views
+
+---
+
+## Role-Based Redirect Logic
+
+The authentication system uses a consistent pattern for role-based redirects:
+
+### Implementation Pattern
+
+1. **Normalize role name** to URL-safe slug format
+2. **Map roles to namespaces** for multi-app architecture
+3. **Try namespaced URL** first (e.g., `gerencia:gerente_dashboard`)
+4. **Fallback to non-namespaced** URL
+5. **Default to home** if no matching route found
+
+### Supported Role Mappings
+
+| Role | Slug | Namespace | URL Name |
+|------|------|-----------|----------|
+| Gerente | `gerente` | `gerencia` | `gerente_dashboard` |
+| Administrador | `administrador` | (none) | `administrador_dashboard` |
+| Invitado | `invitado` | (none) | `invitado_dashboard` |
+
+### Example Redirect Flow
+
+```python
+# User with role "Gerente" logs in
+user.rol_nombre = "Gerente"
+rol_slug = "gerente"  # normalized
+namespace = "gerencia"  # from mapping
+
+# Attempts in order:
+# 1. reverse_lazy("gerencia:gerente_dashboard")  ✓ Success
+# 2. reverse_lazy("gerente_dashboard")           (not attempted)
+# 3. reverse_lazy("home")                        (not attempted)
+```
+
+---
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="User Management" icon="users" href="/api/views/administration">
+    Admin views for managing users and roles
+  </Card>
+  <Card title="Models" icon="database" href="/api/models/user">
+    User and Rol model definitions
+  </Card>
+  <Card title="Forms" icon="file-edit" href="/api/forms/user-forms">
+    Custom user creation and password change forms
+  </Card>
+  <Card title="Permissions" icon="shield" href="/features/role-permissions">
+    Role-based permission system
+  </Card>
+</CardGroup>

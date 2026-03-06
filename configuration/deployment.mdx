@@ -1,0 +1,737 @@
+---
+title: Production Deployment
+description: Complete guide for deploying Gestión de Tierras to production
+---
+
+## Overview
+
+This guide covers everything needed to deploy Gestión de Tierras to a production environment securely and efficiently.
+
+<Warning>
+**Critical**: The default `settings.py` is configured for development only. Follow this guide carefully to secure your production deployment.
+</Warning>
+
+## Pre-Deployment Checklist
+
+Before deploying, ensure you have:
+
+- [ ] Production server with Ubuntu/Debian or similar
+- [ ] PostgreSQL database configured
+- [ ] Domain name with DNS configured
+- [ ] SSL certificate (Let's Encrypt recommended)
+- [ ] Environment variables management strategy
+- [ ] Backup and monitoring plan
+
+## Security Configuration
+
+### 1. SECRET_KEY Management
+
+The current `SECRET_KEY` in `gestion_de_tierras/settings.py:24` is for development only:
+
+```python
+# INSECURE - Development only!
+SECRET_KEY = 'django-insecure-iy6)u87o+*+j@mycr-r*zctf_ls&a3#u#l4$kg1p1*$$tpeimm'
+```
+
+<Warning>
+**Never deploy with the default SECRET_KEY!** This key is publicly visible and would compromise your application's security.
+</Warning>
+
+#### Generate a New Secret Key
+
+```python
+# generate_secret_key.py
+from django.core.management.utils import get_random_secret_key
+print(get_random_secret_key())
+```
+
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
+
+#### Store as Environment Variable
+
+```python
+import os
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY environment variable is required")
+```
+
+### 2. DEBUG Mode
+
+Disable debug mode (`gestion_de_tierras/settings.py:27`):
+
+```python
+# Development
+DEBUG = True  # ❌ NEVER in production!
+
+# Production
+DEBUG = False  # ✅ Always in production
+```
+
+When `DEBUG = False`, Django will not serve static files or display detailed error pages.
+
+### 3. ALLOWED_HOSTS
+
+Configure allowed hosts (`gestion_de_tierras/settings.py:29`):
+
+```python
+# Development
+ALLOWED_HOSTS = []  # ❌ Won't work in production
+
+# Production
+ALLOWED_HOSTS = [
+    'yourdomain.com',
+    'www.yourdomain.com',
+    '10.0.1.100',  # Optional: internal IP
+]
+```
+
+Or use environment variables:
+
+```python
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+```
+
+### 4. Additional Security Settings
+
+Add these to `settings.py` for production:
+
+```python
+# HTTPS/SSL Settings
+SECURE_SSL_REDIRECT = True  # Redirect all HTTP to HTTPS
+SESSION_COOKIE_SECURE = True  # Only send session cookie over HTTPS
+CSRF_COOKIE_SECURE = True  # Only send CSRF cookie over HTTPS
+
+# Security Headers
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'  # Prevent clickjacking
+
+# HTTP Strict Transport Security (HSTS)
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+# Proxy Security (if behind reverse proxy)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+```
+
+### 5. Password Validators
+
+Enable all password validators (currently minimal at `gestion_de_tierras/settings.py:110`):
+
+```python
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 12,  # Increase from development's 4
+        }
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+```
+
+### 6. CSRF Trusted Origins
+
+Update for production domain (`gestion_de_tierras/settings.py:68`):
+
+```python
+# Development
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000', 'http://localhost:8000']
+
+# Production
+CSRF_TRUSTED_ORIGINS = [
+    'https://yourdomain.com',
+    'https://www.yourdomain.com',
+]
+```
+
+## Environment Variables
+
+### Using python-dotenv
+
+Install python-dotenv:
+
+```bash
+pip install python-dotenv
+```
+
+Create `.env` file in project root:
+
+```bash
+# .env (never commit this file!)
+DJANGO_SECRET_KEY=your-generated-secret-key-here
+DEBUG=False
+ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+
+DB_NAME=gestion_de_tierras_bd
+DB_USER=gestion_user
+DB_PASSWORD=your-secure-database-password
+DB_HOST=localhost
+DB_PORT=5432
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-email-password
+```
+
+Load in `settings.py`:
+
+```python
+from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+# Use environment variables
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+```
+
+<Warning>
+**Never commit `.env` files to version control!** Add to `.gitignore`:
+
+```gitignore
+.env
+.env.*
+*.env
+```
+</Warning>
+
+## Database Setup
+
+Configure production database with environment variables:
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'gestion_de_tierras_bd'),
+        'USER': os.environ.get('DB_USER'),
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Connection pooling
+        'OPTIONS': {
+            'sslmode': 'require',  # Require SSL connection
+        },
+    }
+}
+```
+
+See the [Database Configuration](/configuration/database) guide for detailed setup.
+
+## Static Files Collection
+
+The system is configured with (`gestion_de_tierras/settings.py:158-166`):
+
+```python
+STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+]
+```
+
+### Collect Static Files
+
+Before deployment, collect all static files:
+
+```bash
+python manage.py collectstatic --noinput
+```
+
+This copies all static files from apps and `STATICFILES_DIRS` to `STATIC_ROOT` (the `staticfiles/` directory).
+
+## WSGI Configuration
+
+The WSGI application is defined at `gestion_de_tierras/settings.py:87`:
+
+```python
+WSGI_APPLICATION = 'gestion_de_tierras.wsgi.application'
+```
+
+### WSGI Server: Gunicorn
+
+Install Gunicorn:
+
+```bash
+pip install gunicorn
+```
+
+Create `gunicorn_config.py`:
+
+```python
+import multiprocessing
+
+bind = "127.0.0.1:8000"
+workers = multiprocessing.cpu_count() * 2 + 1
+worker_class = "sync"
+worker_connections = 1000
+max_requests = 1000
+max_requests_jitter = 50
+timeout = 30
+keepalive = 2
+
+# Logging
+accesslog = "/var/log/gunicorn/access.log"
+errorlog = "/var/log/gunicorn/error.log"
+loglevel = "info"
+
+# Process naming
+proc_name = "gestion_de_tierras"
+
+# Server mechanics
+daemon = False
+pidfile = "/var/run/gunicorn.pid"
+user = "www-data"
+group = "www-data"
+```
+
+Run Gunicorn:
+
+```bash
+gunicorn gestion_de_tierras.wsgi:application -c gunicorn_config.py
+```
+
+### Systemd Service
+
+Create `/etc/systemd/system/gestion-tierras.service`:
+
+```ini
+[Unit]
+Description=Gestion de Tierras Gunicorn Service
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/gestion_de_tierras
+Environment="PATH=/opt/gestion_de_tierras/venv/bin"
+EnvironmentFile=/opt/gestion_de_tierras/.env
+ExecStart=/opt/gestion_de_tierras/venv/bin/gunicorn \
+    --config /opt/gestion_de_tierras/gunicorn_config.py \
+    gestion_de_tierras.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable gestion-tierras
+sudo systemctl start gestion-tierras
+sudo systemctl status gestion-tierras
+```
+
+## Reverse Proxy: Nginx
+
+Install Nginx:
+
+```bash
+sudo apt update
+sudo apt install nginx
+```
+
+Create `/etc/nginx/sites-available/gestion-tierras`:
+
+```nginx
+upstream gestion_app {
+    server 127.0.0.1:8000 fail_timeout=0;
+}
+
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+    
+    # Redirect HTTP to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com www.yourdomain.com;
+    
+    # SSL Configuration
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # Security Headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    client_max_body_size 50M;
+    
+    # Static files
+    location /static/ {
+        alias /opt/gestion_de_tierras/staticfiles/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Media files
+    location /media/ {
+        alias /opt/gestion_de_tierras/media/;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+    
+    # Proxy to Gunicorn
+    location / {
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host $http_host;
+        proxy_redirect off;
+        proxy_buffering off;
+        
+        proxy_pass http://gestion_app;
+    }
+}
+```
+
+Enable site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/gestion-tierras /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+## SSL/HTTPS with Let's Encrypt
+
+Install Certbot:
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+```
+
+Obtain certificate:
+
+```bash
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+```
+
+Auto-renewal is configured automatically. Test renewal:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+## Email Configuration
+
+Update from console backend (`gestion_de_tierras/settings.py:174`) to SMTP:
+
+```python
+# Production email settings
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('EMAIL_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@yourdomain.com')
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', 'errors@yourdomain.com')
+
+# Email admins on errors when DEBUG=False
+ADMINS = [
+    ('Admin Name', 'admin@yourdomain.com'),
+]
+```
+
+## Logging Configuration
+
+Add comprehensive logging:
+
+```python
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': '/var/log/gestion_tierras/django.log',
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': '/var/log/gestion_tierras/django_errors.log',
+            'maxBytes': 1024 * 1024 * 10,
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file', 'error_file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+```
+
+Create log directory:
+
+```bash
+sudo mkdir -p /var/log/gestion_tierras
+sudo chown www-data:www-data /var/log/gestion_tierras
+```
+
+## Deployment Steps
+
+### 1. Prepare Server
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install dependencies
+sudo apt install python3 python3-pip python3-venv postgresql nginx
+
+# Create application directory
+sudo mkdir -p /opt/gestion_de_tierras
+sudo chown $USER:$USER /opt/gestion_de_tierras
+```
+
+### 2. Deploy Code
+
+```bash
+cd /opt/gestion_de_tierras
+
+# Clone repository (or copy files)
+git clone your-repo-url .
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install gunicorn python-dotenv psycopg2-binary
+```
+
+### 3. Configure Environment
+
+```bash
+# Create .env file
+nano .env
+# (Add all environment variables as shown above)
+
+# Set permissions
+chmod 600 .env
+```
+
+### 4. Database Setup
+
+```bash
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+
+# Collect static files
+python manage.py collectstatic --noinput
+```
+
+### 5. Set Permissions
+
+```bash
+sudo chown -R www-data:www-data /opt/gestion_de_tierras
+sudo chmod -R 755 /opt/gestion_de_tierras
+sudo chmod 600 /opt/gestion_de_tierras/.env
+```
+
+### 6. Start Services
+
+```bash
+# Start Gunicorn
+sudo systemctl start gestion-tierras
+
+# Start Nginx
+sudo systemctl start nginx
+
+# Check status
+sudo systemctl status gestion-tierras
+sudo systemctl status nginx
+```
+
+### 7. Verify Deployment
+
+Visit `https://yourdomain.com` and verify:
+- Site loads correctly
+- Static files display
+- Login works
+- Admin interface accessible
+- HTTPS enabled with valid certificate
+
+## Monitoring and Maintenance
+
+### Application Monitoring
+
+```bash
+# Check Gunicorn logs
+sudo journalctl -u gestion-tierras -f
+
+# Check Django logs
+tail -f /var/log/gestion_tierras/django.log
+
+# Check Nginx logs
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+### Performance Monitoring
+
+Consider installing monitoring tools:
+
+```bash
+# Install monitoring tools
+pip install django-debug-toolbar  # Development only
+pip install sentry-sdk  # Production error tracking
+```
+
+### Regular Maintenance
+
+```bash
+# Update dependencies
+source venv/bin/activate
+pip install --upgrade -r requirements.txt
+
+# Run new migrations
+python manage.py migrate
+
+# Collect updated static files
+python manage.py collectstatic --noinput
+
+# Restart application
+sudo systemctl restart gestion-tierras
+```
+
+## Troubleshooting
+
+### 500 Internal Server Error
+
+1. Check Gunicorn logs: `sudo journalctl -u gestion-tierras -n 50`
+2. Check Django error log: `tail -f /var/log/gestion_tierras/django_errors.log`
+3. Verify environment variables are set correctly
+4. Ensure database connection is working
+
+### Static Files Not Loading
+
+1. Run `python manage.py collectstatic`
+2. Check Nginx configuration for `/static/` location
+3. Verify file permissions: `ls -la /opt/gestion_de_tierras/staticfiles/`
+4. Check Nginx error log: `sudo tail -f /var/log/nginx/error.log`
+
+### Database Connection Issues
+
+1. Verify PostgreSQL is running: `sudo systemctl status postgresql`
+2. Test connection: `psql -U gestion_user -d gestion_de_tierras_bd -h localhost`
+3. Check database settings in `.env`
+4. Review PostgreSQL logs: `sudo tail -f /var/log/postgresql/postgresql-*.log`
+
+## Security Hardening
+
+### Firewall Configuration
+
+```bash
+# Enable UFW
+sudo ufw enable
+
+# Allow SSH
+sudo ufw allow ssh
+
+# Allow HTTP/HTTPS
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Check status
+sudo ufw status
+```
+
+### Fail2Ban for Brute Force Protection
+
+```bash
+sudo apt install fail2ban
+
+# Create custom jail for Django
+sudo nano /etc/fail2ban/jail.local
+```
+
+```ini
+[django-auth]
+enabled = true
+filter = django-auth
+logpath = /var/log/gestion_tierras/django.log
+maxretry = 5
+bantime = 3600
+```
+
+### Regular Security Updates
+
+```bash
+# Enable automatic security updates
+sudo apt install unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+## Related Resources
+
+- [Database Configuration](/configuration/database)
+- [Django Settings](/configuration/settings)
+- [Django Deployment Checklist](https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/)
+- [Gunicorn Documentation](https://docs.gunicorn.org/)
+- [Nginx Documentation](https://nginx.org/en/docs/)

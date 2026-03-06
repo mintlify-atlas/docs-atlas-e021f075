@@ -1,0 +1,566 @@
+---
+title: 'Data Forms'
+description: 'Geographic and organizational data management forms'
+---
+
+# Data Forms
+
+Forms for managing geographic divisions (Departamentos, Distritos, Colonias) and administrative data in the Gestión de Tierras system.
+
+## Validation Functions
+
+Reusable validation functions used across data forms.
+
+### validar_nombre_letras
+
+Validates names containing only letters, spaces, and apostrophes.
+
+```python core/forms.py:10-18
+def validar_nombre_letras(nombre):
+    """
+    Permite letras, espacios y tildes.
+    Rechaza números y símbolos especiales.
+    """
+    patron = r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s']+$"
+    if not re.match(patron, nombre):
+        raise ValidationError("El nombre solo puede contener letras, espacios y apóstrofes.")
+    return nombre.strip().upper()
+```
+
+**Usage**: Departamento names
+
+### validar_nombre_general
+
+Validates names containing letters, numbers, spaces, and apostrophes.
+
+```python core/forms.py:20-28
+def validar_nombre_general(nombre):
+    """
+    Permite letras, números, espacios y tildes.
+    Para Distrito y Colonia.
+    """
+    patron = r"^[A-Za-z0-9ÁÉÍÓÚáéíóúÑñ\s']+$"
+    if not re.match(patron, nombre):
+        raise ValidationError("El nombre solo puede contener letras, números, espacios y apóstrofes.")
+    return nombre.strip().upper()
+```
+
+**Usage**: Distrito and Colonia names
+
+### validar_codigo_numerico
+
+Validates numeric codes are positive integers.
+
+```python core/forms.py:30-36
+def validar_codigo_numerico(codigo):
+    """
+    Valida que el código sea numérico y positivo.
+    """
+    if codigo is None or codigo < 0:
+        raise ValidationError("El código debe ser un número positivo.")
+    return codigo
+```
+
+---
+
+## DepartamentoForm
+
+Form for creating and editing departamentos (provinces/states).
+
+### Model
+
+```python
+model = Departamento
+```
+
+### Fields
+
+| Field | Type | Widget | Validators | Description |
+|-------|------|--------|------------|-------------|
+| `nombre` | CharField | TextInput | validar_nombre_letras | Department name (letters only) |
+| `codigo` | IntegerField | NumberInput | validar_codigo_numerico | Unique numeric code |
+
+### Widget Configuration
+
+```python core/forms.py:46-55
+widgets = {
+    'nombre': forms.TextInput(attrs={
+        'class': 'form-control',
+        'placeholder': 'Ingrese el nombre del departamento'
+    }),
+    'codigo': forms.NumberInput(attrs={
+        'class': 'form-control',
+        'placeholder': 'Ej: 01'
+    }),
+}
+```
+
+### Clean Methods
+
+#### clean_nombre
+
+Validates department name uniqueness (case-insensitive):
+
+```python core/forms.py:57-61
+def clean_nombre(self):
+    nombre = validar_nombre_letras(self.cleaned_data.get('nombre', ''))
+    if Departamento.objects.filter(nombre__iexact=nombre).exclude(id=self.instance.id).exists():
+        raise ValidationError(f'El Departamento "{nombre}" ya existe.')
+    return nombre
+```
+
+- Applies `validar_nombre_letras` (letters, spaces, apostrophes only)
+- Converts to uppercase
+- Checks uniqueness across all departments
+- Excludes current instance when editing
+
+#### clean_codigo
+
+Validates department code uniqueness:
+
+```python core/forms.py:63-67
+def clean_codigo(self):
+    codigo = validar_codigo_numerico(self.cleaned_data.get('codigo'))
+    if Departamento.objects.filter(codigo=codigo).exclude(id=self.instance.id).exists():
+        raise ValidationError(f'El código "{codigo}" ya está asignado a otro departamento.')
+    return codigo
+```
+
+- Ensures code is positive number
+- Checks uniqueness globally
+- Excludes current instance when editing
+
+### Usage Example
+
+```python
+from core.forms import DepartamentoForm
+from core.models import Departamento
+
+def create_departamento(request):
+    if request.method == 'POST':
+        form = DepartamentoForm(request.POST)
+        if form.is_valid():
+            departamento = form.save()
+            messages.success(request, f'Departamento "{departamento.nombre}" creado.')
+            return redirect('departamento_list')
+    else:
+        form = DepartamentoForm()
+    
+    return render(request, 'core/departamento_form.html', {'form': form})
+```
+
+---
+
+## DistritoForm
+
+Form for creating and editing distritos (districts) within departamentos.
+
+### Model
+
+```python
+model = Distrito
+```
+
+### Fields
+
+| Field | Type | Widget | Required | Description |
+|-------|------|--------|----------|-------------|
+| `nombre` | CharField | TextInput | Yes | District name |
+| `codigo` | IntegerField | NumberInput | Yes | Code (unique per department) |
+| `departamento` | ForeignKey | Select | Yes | Parent department |
+
+### Widget Configuration
+
+```python core/forms.py:77-81
+widgets = {
+    'nombre': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre del Distrito'}),
+    'codigo': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Código único dentro del departamento'}),
+    'departamento': forms.Select(attrs={'class': 'form-select'}),
+}
+```
+
+### Clean Methods
+
+#### clean_nombre
+
+Validates minimum length and normalizes:
+
+```python core/forms.py:83-87
+def clean_nombre(self):
+    nombre = self.cleaned_data.get('nombre', '').strip().upper()
+    if len(nombre) < 3:
+        raise forms.ValidationError("El nombre debe tener al menos 3 caracteres.")
+    return nombre
+```
+
+#### clean_codigo
+
+Validates code uniqueness **within the same department**:
+
+```python core/forms.py:89-107
+def clean_codigo(self):
+    codigo = self.cleaned_data.get('codigo')
+    departamento = self.cleaned_data.get('departamento')
+
+    if codigo is None or codigo < 1:
+        raise forms.ValidationError("El código debe ser un número positivo.")
+
+    # Validación: único solo dentro del mismo departamento
+    if codigo and departamento:
+        existe_codigo = Distrito.objects.filter(
+            codigo=codigo,
+            departamento=departamento
+        ).exclude(id=self.instance.id).exists()
+
+        if existe_codigo:
+            raise forms.ValidationError(
+                f'El código {codigo} ya está asignado en el departamento "{departamento}".')
+    return codigo
+```
+
+<Note>
+  Codes only need to be unique **within each department**, not globally. Different departments can have districts with the same code.
+</Note>
+
+#### clean (Cross-field validation)
+
+Validates combinations of nombre+departamento and codigo+departamento:
+
+```python core/forms.py:109-139
+def clean(self):
+    """
+    Validaciones cruzadas: nombre + departamento y código + departamento.
+    """
+    cleaned_data = super().clean()
+    nombre = cleaned_data.get('nombre')
+    codigo = cleaned_data.get('codigo')
+    departamento = cleaned_data.get('departamento')
+
+    if not departamento:
+        raise forms.ValidationError("Debe seleccionar un departamento.")
+
+    # Verificar nombre único por departamento
+    if nombre and departamento:
+        existe_nombre = Distrito.objects.filter(
+            nombre__iexact=nombre.strip(),
+            departamento=departamento
+        ).exclude(id=self.instance.id).exists()
+        if existe_nombre:
+            self.add_error('nombre', f'Ya existe un distrito llamado "{nombre}" en el departamento "{departamento}".')
+
+    # Verificar código único por departamento
+    if codigo and departamento:
+        existe_codigo = Distrito.objects.filter(
+            codigo=codigo,
+            departamento=departamento
+        ).exclude(id=self.instance.id).exists()
+        if existe_codigo:
+            self.add_error('codigo', f'El código {codigo} ya está asignado en el departamento "{departamento}".')
+
+    return cleaned_data
+```
+
+### Usage Example
+
+```python
+from core.forms import DistritoForm
+
+def create_distrito(request, departamento_id):
+    departamento = get_object_or_404(Departamento, id=departamento_id)
+    
+    if request.method == 'POST':
+        form = DistritoForm(request.POST)
+        if form.is_valid():
+            distrito = form.save()
+            messages.success(request, f'Distrito "{distrito.nombre}" creado.')
+            return redirect('distrito_list', departamento_id=departamento.id)
+    else:
+        form = DistritoForm(initial={'departamento': departamento})
+    
+    return render(request, 'core/distrito_form.html', {
+        'form': form,
+        'departamento': departamento
+    })
+```
+
+---
+
+## ColoniaForm
+
+Form for creating and editing colonias (land settlements/colonies).
+
+### Model
+
+```python
+model = Colonia
+```
+
+### Fields
+
+| Field | Type | Widget | Required | Description |
+|-------|------|--------|----------|-------------|
+| `nombre` | CharField | TextInput | Yes | Colony name |
+| `codigo` | IntegerField | NumberInput | Yes | Unique numeric code |
+| `distritos` | ManyToMany | SelectMultiple | Yes | Associated districts |
+| `estado` | CharField | Select | Yes | Colony status |
+| `finca_matriz` | CharField | TextInput | No | Matrix farm/estate |
+| `padron_matriz` | CharField | TextInput | No | Matrix registry number |
+
+### Special Field: distritos
+
+Multiple district selection:
+
+```python core/forms.py:146-150
+distritos = forms.ModelMultipleChoiceField(
+    queryset=Distrito.objects.all(),
+    widget=forms.SelectMultiple(attrs={'class': 'form-control'}),
+    required=True
+)
+```
+
+<Warning>
+  A colonia must be associated with at least one distrito. The field is marked as required.
+</Warning>
+
+### Widget Configuration
+
+```python core/forms.py:154-161
+widgets = {
+    'nombre': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre de la Colonia'}),
+    'codigo': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Código único'}),
+    'estado': forms.Select(attrs={'class': 'form-select'}),
+    'finca_matriz': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Finca matriz'}),
+    'padron_matriz': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Padrón matriz'}),
+}
+```
+
+### Clean Methods
+
+#### clean_nombre
+
+Validates name format, length, and uniqueness:
+
+```python core/forms.py:163-169
+def clean_nombre(self):
+    nombre = validar_nombre_general(self.cleaned_data.get('nombre', ''))
+    if len(nombre) < 3:
+        raise forms.ValidationError("El nombre debe tener al menos 3 caracteres.")
+    if Colonia.objects.filter(nombre__iexact=nombre).exclude(id=self.instance.id).exists():
+        raise forms.ValidationError(f'La Colonia "{nombre}" ya existe.')
+    return nombre
+```
+
+- Uses `validar_nombre_general` (allows letters, numbers, spaces, apostrophes)
+- Minimum 3 characters
+- Globally unique (case-insensitive)
+- Converts to uppercase
+
+#### clean_codigo
+
+Validates code uniqueness:
+
+```python core/forms.py:171-175
+def clean_codigo(self):
+    codigo = validar_codigo_numerico(self.cleaned_data.get('codigo'))
+    if Colonia.objects.filter(codigo=codigo).exclude(id=self.instance.id).exists():
+        raise forms.ValidationError(f"Ya existe una colonia con el código {codigo}.")
+    return codigo
+```
+
+### Usage Example
+
+```python
+from core.forms import ColoniaForm
+
+def create_colonia(request):
+    if request.method == 'POST':
+        form = ColoniaForm(request.POST)
+        if form.is_valid():
+            colonia = form.save()
+            messages.success(request, f'Colonia "{colonia.nombre}" creada.')
+            return redirect('colonia_detail', pk=colonia.pk)
+    else:
+        form = ColoniaForm()
+    
+    return render(request, 'core/colonia_form.html', {'form': form})
+```
+
+### Template Example with Multiple Districts
+
+```html
+<form method="post">
+    {% csrf_token %}
+    
+    <div class="mb-3">
+        <label for="id_nombre" class="form-label">Nombre</label>
+        {{ form.nombre }}
+        {% if form.nombre.errors %}
+            <div class="text-danger">{{ form.nombre.errors }}</div>
+        {% endif %}
+    </div>
+    
+    <div class="mb-3">
+        <label for="id_distritos" class="form-label">Distritos</label>
+        <select name="distritos" id="id_distritos" class="form-control" multiple required>
+            {% for distrito in form.fields.distritos.queryset %}
+                <option value="{{ distrito.id }}">{{ distrito.nombre }} ({{ distrito.departamento }})</option>
+            {% endfor %}
+        </select>
+        <small class="form-text text-muted">Mantén presionado Ctrl (Windows) o Command (Mac) para seleccionar múltiples distritos.</small>
+    </div>
+    
+    <button type="submit" class="btn btn-primary">Guardar Colonia</button>
+</form>
+```
+
+---
+
+## SolicitudForm
+
+Form for creating land request/application records.
+
+### Model
+
+```python
+model = Solicitud
+```
+
+### Fields
+
+| Field | Type | Widget | Required | Description |
+|-------|------|--------|----------|-------------|
+| `colonia` | ForeignKey | Select | Yes | Associated colony |
+| `tipo` | CharField | Select | Yes | Request type |
+| `observaciones` | TextField | Textarea | No | Additional observations |
+
+### Widget Configuration
+
+```python core/forms.py:184-189
+widgets = {
+    'colonia': forms.Select(attrs={'class': 'form-select'}),
+    'tipo': forms.Select(attrs={'class': 'form-select'}),
+    'observaciones': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Observaciones'}),
+}
+```
+
+### Model-Level Validation
+
+The form's `clean()` method triggers model validation:
+
+```python core/forms.py:191-200
+def clean(self):
+    cleaned = super().clean()
+    try:
+        self.instance.colonia = cleaned.get('colonia')
+        self.instance.tipo = cleaned.get('tipo')
+        self.instance.observaciones = cleaned.get('observaciones')
+        self.instance.full_clean(exclude=None)
+    except forms.ValidationError as e:
+        raise forms.ValidationError(e.messages)
+    return cleaned
+```
+
+<Note>
+  This approach delegates validation logic to the Solicitud model's `clean()` method, ensuring consistency between form and model-level validation.
+</Note>
+
+### Usage Example
+
+```python
+from core.forms import SolicitudForm
+
+@login_required
+def create_solicitud(request):
+    if request.method == 'POST':
+        form = SolicitudForm(request.POST)
+        if form.is_valid():
+            solicitud = form.save(commit=False)
+            solicitud.usuario = request.user
+            solicitud.save()
+            messages.success(request, 'Solicitud creada exitosamente.')
+            return redirect('solicitud_detail', pk=solicitud.pk)
+    else:
+        form = SolicitudForm()
+    
+    return render(request, 'core/solicitud_form.html', {'form': form})
+```
+
+---
+
+## Form Validation Summary
+
+### Validation Hierarchy
+
+1. **Field-level validation** (`clean_<fieldname>` methods)
+2. **Cross-field validation** (`clean()` method)
+3. **Model validation** (`model.full_clean()`)
+
+### Common Validation Patterns
+
+#### Uniqueness Validation
+
+```python
+if Model.objects.filter(field=value).exclude(id=self.instance.id).exists():
+    raise ValidationError(f'Value "{value}" already exists.')
+```
+
+#### Scoped Uniqueness
+
+```python
+# Unique within a parent (e.g., distrito code per departamento)
+if Model.objects.filter(
+    code=code,
+    parent=parent
+).exclude(id=self.instance.id).exists():
+    raise ValidationError('Code already exists in this parent.')
+```
+
+#### Regex Pattern Validation
+
+```python
+import re
+patron = r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s']+$"
+if not re.match(patron, value):
+    raise ValidationError("Invalid format.")
+```
+
+---
+
+## Error Display
+
+All forms support Bootstrap 5 error styling:
+
+```html
+{% for field in form %}
+    <div class="mb-3">
+        <label for="{{ field.id_for_label }}" class="form-label">
+            {{ field.label }}
+        </label>
+        {{ field }}
+        {% if field.errors %}
+            <div class="invalid-feedback d-block">
+                {{ field.errors }}
+            </div>
+        {% endif %}
+        {% if field.help_text %}
+            <small class="form-text text-muted">{{ field.help_text }}</small>
+        {% endif %}
+    </div>
+{% endfor %}
+
+{% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {{ form.non_field_errors }}
+    </div>
+{% endif %}
+```
+
+---
+
+## Related
+
+- [Departamento Model](/api/models/departamento)
+- [Distrito Model](/api/models/distrito)
+- [Colonia Model](/api/models/colonia)
+- [Solicitud Model](/api/models/solicitud)
+- [Geographic Data Views](/api/views/geographic)

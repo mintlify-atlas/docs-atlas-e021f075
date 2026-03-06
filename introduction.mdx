@@ -1,0 +1,127 @@
+---
+title: Introduction
+description: Welcome to Gestión de Tierras - A comprehensive Django-based land management system for tracking and administering land parcels, colonies, and administrative processes.
+---
+
+## Overview
+
+Gestión de Tierras is a robust Django web application designed to streamline land management operations. The system provides a complete solution for managing land parcels, colonies (settlements), districts, departments, and the entire administrative workflow from surveying to titling.
+
+<Note>
+This system is built with Django 5.0.4 and PostgreSQL, offering a scalable and secure platform for government land administration.
+</Note>
+
+## Key Features
+
+The Gestión de Tierras system encompasses several specialized modules:
+
+<CardGroup cols={2}>
+  <Card title="Core Management" icon="database">
+    - Department and district administration
+    - Colony tracking with status management
+    - Geographic area and objective management
+    - Request workflow system
+  </Card>
+  
+  <Card title="User Administration" icon="users">
+    - Custom user model with role-based access control
+    - Flexible permission system
+    - User approval workflow
+    - Multi-role support (administrators, managers, surveyors)
+  </Card>
+  
+  <Card title="Survey Management" icon="map-marker">
+    - Land survey request system
+    - Field data collection
+    - Survey status tracking
+    - Data validation and audit trails
+  </Card>
+  
+  <Card title="Document Processing" icon="file-text">
+    - File management (expedienteo)
+    - Document coordination
+    - Analysis workflows
+    - Titling process management
+  </Card>
+</CardGroup>
+
+## System Architecture
+
+The application follows Django's MVT (Model-View-Template) architecture with modular apps:
+
+- **core**: Central models (Departamento, Distrito, Colonia, Solicitud, Relevamiento)
+- **administrador**: User management and authentication with custom User model
+- **coordinacion**: Coordination of land survey requests
+- **relevamiento**: Field survey data collection and management
+- **analisis**: Data analysis and reporting
+- **expedienteo**: Document and file management
+- **gerencia**: Management and oversight tools
+- **sig**: Geographic Information System integration
+- **titulacion**: Land titling processes
+
+<Note>
+The system uses a custom user model (`administrador.User`) that extends Django's AbstractUser with role-based permissions and approval workflows.
+</Note>
+
+## Target Users
+
+Gestión de Tierras is designed for:
+
+- **System Administrators**: Full access to configure departments, districts, colonies, and user roles
+- **Land Managers**: Oversee survey requests, coordinate field operations, and track progress
+- **Surveyors**: Conduct field surveys and enter data
+- **Analysts**: Review survey data and generate reports
+- **Document Processors**: Manage files and documentation workflows
+
+## Database Design
+
+The system utilizes PostgreSQL with a hierarchical structure:
+
+```
+Departamento (Department)
+  └── Distrito (District)
+        └── Colonia (Colony)
+              ├── Solicitud (Survey Request)
+              └── Relevamiento (Survey)
+```
+
+Key models include:
+- **Departamento**: Top-level administrative divisions
+- **Distrito**: Districts within departments
+- **Colonia**: Land colonies/settlements with status tracking
+- **Solicitud**: Survey requests with state management
+- **Relevamiento**: Actual survey data collection
+- **User**: Custom user model with roles and permissions
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="Backend" icon="server">
+    - Django 5.0.4
+    - PostgreSQL database
+    - Python 3.x
+  </Card>
+  
+  <Card title="Frontend" icon="window">
+    - Django Templates
+    - Bootstrap 5
+    - django-widget-tweaks
+    - django-crispy-forms
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running in minutes with our quick start guide
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions and configuration
+  </Card>
+</CardGroup>
+
+<Warning>
+This system handles sensitive land ownership data. Ensure proper security measures are in place before deploying to production.
+</Warning>
